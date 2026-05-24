@@ -107,20 +107,30 @@ class EventStore:
         self._conn.close()
 
 
+_EXPLICIT_SCHEMA: dict[str, pl.DataType] = {
+    "event_id": pl.Utf8,
+    "source_catalog": pl.Utf8,
+    "time_start": pl.Datetime("us", "UTC"),
+    "time_end": pl.Datetime("us", "UTC"),
+    "longitude": pl.Float64,
+    "latitude": pl.Float64,
+    "mark": pl.Utf8,
+    "magnitude": pl.Float64,
+    "metadata_json": pl.Utf8,
+    "ingested_at": pl.Datetime("us", "UTC"),
+    "dedup_group_id": pl.Utf8,
+}
+
+
 def _rows_to_polars(rows: list[dict[str, Any]]) -> pl.DataFrame:
-    """Build a Polars DataFrame with explicit timezone-aware datetime columns."""
-    df = pl.DataFrame(rows)
-    # Ensure DuckDB receives proper tz-aware timestamps rather than bare datetimes.
-    tz_cols = ["time_start", "time_end", "ingested_at"]
-    cast_exprs = []
-    for col in tz_cols:
-        if col in df.columns:
-            cast_exprs.append(
-                pl.col(col).cast(pl.Datetime("us", "UTC"))
-            )
-    if cast_exprs:
-        df = df.with_columns(cast_exprs)
-    return df
+    """Build a Polars DataFrame with an explicit schema.
+
+    Inferring from data is unsafe — when early rows have None magnitudes,
+    Polars infers `pl.Null` and later rows with floats trigger a ComputeError.
+    The explicit schema also keeps datetime columns timezone-aware so DuckDB
+    accepts them into TIMESTAMP WITH TIME ZONE columns.
+    """
+    return pl.DataFrame(rows, schema=_EXPLICIT_SCHEMA, strict=False)
 
 
 def _event_to_row(e: Event) -> dict[str, Any]:

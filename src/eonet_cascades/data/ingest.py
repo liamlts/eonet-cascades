@@ -55,6 +55,7 @@ def run_ingest(
     catalogs = catalogs or cfg.catalogs
 
     new_events: list[Event] = []
+    catalogs_attempted: list[str] = []
     for cat in catalogs:
         last = manifests.last_fetched(cat)
         effective_since = max(last, since) if last is not None else since
@@ -79,13 +80,17 @@ def run_ingest(
             cat_events.append(ev)
         counts[cat] = len(cat_events)
         new_events.extend(cat_events)
-        manifests.set_last_fetched(cat, until)
+        catalogs_attempted.append(cat)
         console.log(f"  -> harmonized {len(cat_events)} events")
 
     # Dedup across catalogs in the new batch (v1: dedup only the new batch).
     deduped = assign_dedup_groups(new_events)
     written = store.write_events(deduped)
     console.log(f"[green]Wrote {written} events to {cfg.duckdb_path}[/]")
+    # Only advance manifests after a successful write — otherwise a failed run
+    # would silently skip its window on the retry.
+    for cat in catalogs_attempted:
+        manifests.set_last_fetched(cat, until)
     store.close()
     return counts
 
