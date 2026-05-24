@@ -1,0 +1,4 @@
+latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight
+34.123,-118.234,335.5,0.5,0.5,2024-06-15,1842,Suomi NPP,VIIRS,n,2.0NRT,295.2,12.5,D
+38.567,-122.111,310.1,0.4,0.4,2024-06-15,2103,Suomi NPP,VIIRS,n,2.0NRT,290.0,5.3,D
+40.012,-105.234,325.8,0.6,0.5,2024-06-16,0512,Suomi NPP,VIIRS,h,2.0NRT,300.5,22.1,N
