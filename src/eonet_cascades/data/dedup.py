@@ -71,9 +71,15 @@ def assign_dedup_groups(
         if t is None:
             continue
         # Sort by time and do a sliding-window comparison.
+        # IMPORTANT: do not slice `idxs[i_pos+1:]` — it allocates a new list
+        # every outer iteration and turns the algorithm O(N^2) in memory ops,
+        # which becomes hours-long on 100k+ events. Use index-based iteration.
         idxs.sort(key=lambda i: events[i].time_start)
-        for i_pos, i in enumerate(idxs):
-            for j in idxs[i_pos + 1 :]:
+        n = len(idxs)
+        for i_pos in range(n):
+            i = idxs[i_pos]
+            for j_pos in range(i_pos + 1, n):
+                j = idxs[j_pos]
                 if events[j].time_start - events[i].time_start > t.temporal:
                     break
                 if _haversine_km(

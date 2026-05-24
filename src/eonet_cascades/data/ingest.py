@@ -42,6 +42,7 @@ def run_ingest(
     since: datetime,
     until: datetime,
     catalogs: list[str] | None = None,
+    dedup: bool = False,
 ) -> dict[str, int]:
     """Run the full ingest pipeline for the given time window and catalogs.
 
@@ -91,9 +92,12 @@ def run_ingest(
         skip_note = f" ({skipped_validation} skipped: invalid coords)" if skipped_validation else ""
         console.log(f"  -> harmonized {len(cat_events)} events{skip_note}")
 
-        # Per-catalog dedup + write — preserves progress across catalog failures.
-        deduped = assign_dedup_groups(cat_events)
-        written = store.write_events(deduped)
+        # Per-catalog write — preserves progress across catalog failures.
+        # Dedup is opt-in via `dedup=True`; for ingest of large catalogs (NOAA's
+        # ~870k events) the in-Python sliding-window scan is too slow at write
+        # time. Run dedup as a separate post-ingest pass when needed.
+        events_to_write = assign_dedup_groups(cat_events) if dedup else cat_events
+        written = store.write_events(events_to_write)
         console.log(f"  -> wrote {written} {cat} events to store")
         manifests.set_last_fetched(cat, until)
 
