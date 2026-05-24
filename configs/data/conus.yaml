@@ -1,0 +1,10 @@
+# Default CONUS + Mexico data configuration.
+data_root: /Volumes/Seagate_Ext/eonet-cascades-data
+catalogs:
+  - eonet
+  - usgs
+  - noaa
+  - firms
+bbox: [-130.0, 14.0, -65.0, 50.0]   # min_lon, min_lat, max_lon, max_lat
+start_date: 2000-01-01
+firms_api_key: null   # required at runtime for the FIRMS fetcher; set via env EONET_FIRMS_API_KEY
