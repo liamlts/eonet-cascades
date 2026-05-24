@@ -56,8 +56,13 @@ class FIRMSFetcher:
         # FIRMS API caps day_range at 5 — window accordingly.
         # FIRMS uses 400 Bad Request as its rate-limit response (not 429).
         # The client retries 5xx only, so we catch 4xx here, back off, retry once.
+        from rich.console import Console
+        log = Console(file=sys.stderr)
+
         cursor = since
         skipped_windows = 0
+        n_windows = 0
+        total_windows = max(1, (until - since).days // 5 + 1)
         while cursor < until:
             window_end = min(cursor + timedelta(days=5), until)
             day_range = (window_end - cursor).days
@@ -69,36 +74,33 @@ class FIRMSFetcher:
                 r = self._client.get(url)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 400:
-                    # Likely rate-limited. Back off 60s and try once more.
-                    print(
-                        f"[firms] 400 on window {date_str}/+{day_range}d — "
-                        "rate-limit suspected, sleeping 60s then retrying",
-                        file=sys.stderr,
-                        flush=True,
+                    log.log(
+                        f"[firms] 400 on {date_str}/+{day_range}d — sleeping 60s then retrying"
                     )
                     time.sleep(60)
                     try:
                         r = self._client.get(url)
                     except httpx.HTTPStatusError:
                         skipped_windows += 1
-                        print(
-                            f"[firms] still failing on {date_str}/+{day_range}d "
-                            "after backoff — skipping window",
-                            file=sys.stderr,
-                            flush=True,
+                        log.log(
+                            f"[firms] still failing on {date_str}/+{day_range}d — skipping"
                         )
                         cursor = window_end
+                        n_windows += 1
                         continue
                 else:
                     raise
             yield from self._iter_raw_from_csv(r.text)
             cursor = window_end
-        if skipped_windows:
-            print(
-                f"[firms] total windows skipped after retries: {skipped_windows}",
-                file=sys.stderr,
-                flush=True,
-            )
+            n_windows += 1
+            if n_windows % 50 == 0:
+                log.log(
+                    f"[firms] progress: {n_windows}/{total_windows} windows "
+                    f"({100 * n_windows / total_windows:.1f}%), cursor={date_str}"
+                )
+        log.log(
+            f"[firms] complete: {n_windows} windows, {skipped_windows} skipped after retries"
+        )
 
     def _iter_raw_from_csv(self, text: str) -> Iterable[RawEvent]:
         df = pl.read_csv(io.StringIO(text), infer_schema_length=1000, ignore_errors=True)
