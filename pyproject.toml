@@ -62,5 +62,6 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "jupyterlab>=4.5.7",
     "nbformat>=5.10.4",
 ]
