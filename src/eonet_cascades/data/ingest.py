@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pydantic import ValidationError
 from rich.console import Console
 
 from eonet_cascades.config import DataConfig
@@ -66,13 +67,20 @@ def run_ingest(
         fetcher = build_fetcher(cat, cfg)
         console.log(f"[bold]{cat}[/]: fetching {effective_since} -> {until}")
         cat_events: list[Event] = []
+        skipped_validation = 0
         # Some fetchers (USGS, FIRMS) accept a bbox kwarg; others don't.
         try:
             fetch_iter = fetcher.fetch(effective_since, until, bbox=cfg.bbox)  # type: ignore[arg-type]
         except TypeError:
             fetch_iter = fetcher.fetch(effective_since, until)
         for raw in fetch_iter:
-            ev = fetcher.harmonize(raw)
+            try:
+                ev = fetcher.harmonize(raw)
+            except ValidationError:
+                # Source data violates Event invariants (e.g. lat>90).
+                # Skip the row rather than abort the entire ingest.
+                skipped_validation += 1
+                continue
             if ev is None:
                 continue
             if not _in_bbox(ev, cfg.bbox):
@@ -81,7 +89,8 @@ def run_ingest(
         counts[cat] = len(cat_events)
         new_events.extend(cat_events)
         catalogs_attempted.append(cat)
-        console.log(f"  -> harmonized {len(cat_events)} events")
+        skip_note = f" ({skipped_validation} skipped: invalid coords)" if skipped_validation else ""
+        console.log(f"  -> harmonized {len(cat_events)} events{skip_note}")
 
     # Dedup across catalogs in the new batch (v1: dedup only the new batch).
     deduped = assign_dedup_groups(new_events)
