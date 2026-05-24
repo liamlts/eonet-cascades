@@ -55,8 +55,12 @@ def run_ingest(
 
     catalogs = catalogs or cfg.catalogs
 
-    new_events: list[Event] = []
-    catalogs_attempted: list[str] = []
+    # NOTE: v1 design wrote ALL catalogs in one batch and did cross-catalog
+    # dedup before a single store.write_events. That lost data on any
+    # mid-stream failure (e.g. a FIRMS rate-limit 400 after NOAA succeeded).
+    # We now write per catalog so partial progress survives. Cross-catalog
+    # dedup becomes a later in-store pass (TODO Plan 2+); for now each
+    # catalog gets within-catalog dedup at write time.
     for cat in catalogs:
         last = manifests.last_fetched(cat)
         effective_since = max(last, since) if last is not None else since
@@ -68,7 +72,6 @@ def run_ingest(
         console.log(f"[bold]{cat}[/]: fetching {effective_since} -> {until}")
         cat_events: list[Event] = []
         skipped_validation = 0
-        # Some fetchers (USGS, FIRMS) accept a bbox kwarg; others don't.
         try:
             fetch_iter = fetcher.fetch(effective_since, until, bbox=cfg.bbox)  # type: ignore[arg-type]
         except TypeError:
@@ -77,8 +80,6 @@ def run_ingest(
             try:
                 ev = fetcher.harmonize(raw)
             except ValidationError:
-                # Source data violates Event invariants (e.g. lat>90).
-                # Skip the row rather than abort the entire ingest.
                 skipped_validation += 1
                 continue
             if ev is None:
@@ -87,19 +88,15 @@ def run_ingest(
                 continue
             cat_events.append(ev)
         counts[cat] = len(cat_events)
-        new_events.extend(cat_events)
-        catalogs_attempted.append(cat)
         skip_note = f" ({skipped_validation} skipped: invalid coords)" if skipped_validation else ""
         console.log(f"  -> harmonized {len(cat_events)} events{skip_note}")
 
-    # Dedup across catalogs in the new batch (v1: dedup only the new batch).
-    deduped = assign_dedup_groups(new_events)
-    written = store.write_events(deduped)
-    console.log(f"[green]Wrote {written} events to {cfg.duckdb_path}[/]")
-    # Only advance manifests after a successful write — otherwise a failed run
-    # would silently skip its window on the retry.
-    for cat in catalogs_attempted:
+        # Per-catalog dedup + write — preserves progress across catalog failures.
+        deduped = assign_dedup_groups(cat_events)
+        written = store.write_events(deduped)
+        console.log(f"  -> wrote {written} {cat} events to store")
         manifests.set_last_fetched(cat, until)
+
     store.close()
     return counts
 
