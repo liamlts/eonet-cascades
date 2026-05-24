@@ -315,7 +315,9 @@ def test_zero_intensity_yields_empty():
 
 
 def test_decaying_intensity_concentrates_early():
-    # λ(t) starts at 10 and decays exp(-t). Most events should be in [0,1].
+    # λ(t) = 10 * exp(-t) over [0, 5]. Split at t=2: true integral ratio is
+    # (10 * (1 - e^-2)) / (10 * (e^-2 - e^-5)) ≈ 8.65 / 1.28 ≈ 6.76, so
+    # `early > 3 * late` is a strong but achievable assertion.
     intensity = lambda t, hist: 10.0 * math.exp(-t)  # noqa: E731
     upper_bound = lambda t, hist: 10.0  # noqa: E731
 
@@ -323,10 +325,11 @@ def test_decaying_intensity_concentrates_early():
     counts_early = 0
     counts_late = 0
     n_trials = 50
+    split = 2.0
     for _ in range(n_trials):
         events = thinning_sample_temporal(intensity, upper_bound, 5.0, rng=rng)
         for ev in events:
-            if ev < 1.0:
+            if ev < split:
                 counts_early += 1
             else:
                 counts_late += 1
