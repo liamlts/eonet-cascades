@@ -27,22 +27,29 @@ class USGSFetcher:
         until: datetime,
         bbox: tuple[float, float, float, float] | None = None,
     ) -> Iterable[RawEvent]:
-        params: dict[str, str] = {
-            "format": "geojson",
-            "starttime": since.isoformat(),
-            "endtime": until.isoformat(),
-            "minmagnitude": str(self._min_magnitude),
-            "orderby": "time-asc",
-        }
-        if bbox is not None:
-            min_lon, min_lat, max_lon, max_lat = bbox
-            params["minlongitude"] = str(min_lon)
-            params["maxlongitude"] = str(max_lon)
-            params["minlatitude"] = str(min_lat)
-            params["maxlatitude"] = str(max_lat)
-        r = self._client.get(USGS_URL, params=params)
-        payload = r.json()
-        yield from self._iter_raw_from_payload(payload)
+        # USGS ComCat caps query results at 20,000. Window by year — a year of
+        # CONUS+MX seismicity at M>=2.5 is ~5k events, well under the cap.
+        cursor = since
+        while cursor < until:
+            year_end = cursor.replace(year=cursor.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            window_end = min(year_end, until)
+            params: dict[str, str] = {
+                "format": "geojson",
+                "starttime": cursor.isoformat(),
+                "endtime": window_end.isoformat(),
+                "minmagnitude": str(self._min_magnitude),
+                "orderby": "time-asc",
+            }
+            if bbox is not None:
+                min_lon, min_lat, max_lon, max_lat = bbox
+                params["minlongitude"] = str(min_lon)
+                params["maxlongitude"] = str(max_lon)
+                params["minlatitude"] = str(min_lat)
+                params["maxlatitude"] = str(max_lat)
+            r = self._client.get(USGS_URL, params=params)
+            payload = r.json()
+            yield from self._iter_raw_from_payload(payload)
+            cursor = window_end
 
     def _iter_raw_from_payload(self, payload: dict[str, Any]) -> Iterable[RawEvent]:
         for feat in payload.get("features", []):
