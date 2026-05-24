@@ -774,6 +774,7 @@ ml = [
 [package.dev-dependencies]
 dev = [
     { name = "jupyterlab" },
+    { name = "matplotlib" },
     { name = "nbformat" },
 ]
 
@@ -807,6 +808,7 @@ provides-extras = ["dev", "ml"]
 [package.metadata.requires-dev]
 dev = [
     { name = "jupyterlab", specifier = ">=4.5.7" },
+    { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "nbformat", specifier = ">=5.10.4" },
 ]
 
