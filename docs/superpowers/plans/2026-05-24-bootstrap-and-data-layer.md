@@ -269,6 +269,13 @@ app = typer.Typer(
 console = Console()
 
 
+@app.callback()
+def _root() -> None:
+    """Root callback — exists to disable Typer's single-command flattening so
+    `eonet --help` shows the app help (not the only subcommand's help) until
+    Task 16 adds a second command."""
+
+
 @app.command()
 def version() -> None:
     """Print the package version."""
