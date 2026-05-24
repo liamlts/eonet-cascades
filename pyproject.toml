@@ -59,3 +59,8 @@ markers = [
     "slow: marks slow integration tests (deselect with -m 'not slow')",
     "network: marks tests that hit real network (deselect with -m 'not network')",
 ]
+
+[dependency-groups]
+dev = [
+    "nbformat>=5.10.4",
+]
