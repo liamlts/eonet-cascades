@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
+import polars as pl
+from scipy.optimize import minimize
 
 
 @dataclass
@@ -180,3 +183,121 @@ def hawkes_log_likelihood(
         integral_trigger = float(np.sum(per_event))
 
     return sum_log - integral_baseline - integral_trigger
+
+
+@dataclass
+class ParametricHawkes:
+    """Tier 0 — multivariate marked Hawkes model with exponential temporal kernel and
+    isotropic Gaussian spatial kernel. Conforms to `PointProcessModel` protocol."""
+
+    K: int  # K is standard notation for number of marks
+    bbox: tuple[float, float, float, float]
+    pi_k: SpatialDensityFn
+    params: HawkesParams = field(init=False)
+    name: str = field(default="hawkes_tier0")
+
+    def __post_init__(self) -> None:
+        # Sensible initial values.
+        self.params = HawkesParams(
+            mu=np.full(self.K, 0.1),
+            alpha=np.full((self.K, self.K), 0.05),
+            beta=np.full((self.K, self.K), 1.0),
+            sigma=np.full((self.K, self.K), 1.0),
+        )
+
+    def log_likelihood(
+        self,
+        events: dict[str, np.ndarray] | pl.DataFrame,
+        window: tuple[float, float],
+    ) -> float:
+        if isinstance(events, pl.DataFrame):
+            events = _df_to_event_dict(events)
+        return hawkes_log_likelihood(self.params, events, window, self.pi_k, self.bbox)
+
+    def sample(self, history, window):  # pragma: no cover — placeholder
+        raise NotImplementedError("Sampling lands in a later task")
+
+    def fit(
+        self,
+        events: dict[str, np.ndarray] | pl.DataFrame,
+        window: tuple[float, float],
+        *,
+        fix_alpha_zero: bool = False,
+        max_iter: int = 200,
+    ) -> dict[str, Any]:
+        """MLE fit of (mu, alpha, beta, sigma) via L-BFGS-B with positive bounds.
+
+        `fix_alpha_zero=True` clamps alpha=0 (homogeneous Poisson baseline-only fit) --
+        useful for validating the mu recovery path independently of the triggering kernels.
+        """
+        if isinstance(events, pl.DataFrame):
+            events = _df_to_event_dict(events)
+
+        K = self.K  # noqa: N806
+        n_mu = K
+        n_pair = K * K
+        # Flat parameter vector: [mu (K), alpha (K^2), beta (K^2), sigma (K^2)]
+
+        def unpack(theta: np.ndarray) -> HawkesParams:
+            mu = theta[:n_mu]
+            alpha = theta[n_mu : n_mu + n_pair].reshape(K, K)
+            beta = theta[n_mu + n_pair : n_mu + 2 * n_pair].reshape(K, K)
+            sigma = theta[n_mu + 2 * n_pair :].reshape(K, K)
+            if fix_alpha_zero:
+                alpha = np.zeros_like(alpha)
+            return HawkesParams(mu=mu, alpha=alpha, beta=beta, sigma=sigma)
+
+        def nll(theta: np.ndarray) -> float:
+            params = unpack(theta)
+            ll = hawkes_log_likelihood(params, events, window, self.pi_k, self.bbox)
+            if not np.isfinite(ll):
+                return 1e20
+            return -ll
+
+        theta0 = np.concatenate(
+            [self.params.mu, self.params.alpha.ravel(), self.params.beta.ravel(), self.params.sigma.ravel()]
+        )
+        # Bounds: mu >= 1e-6, alpha in [0, 0.95] (stability), beta >= 1e-3, sigma >= 1e-3.
+        lower = np.concatenate(
+            [np.full(n_mu, 1e-6), np.zeros(n_pair), np.full(n_pair, 1e-3), np.full(n_pair, 1e-3)]
+        )
+        upper = np.concatenate(
+            [np.full(n_mu, 100.0), np.full(n_pair, 0.95), np.full(n_pair, 100.0), np.full(n_pair, 100.0)]
+        )
+        bounds = list(zip(lower.tolist(), upper.tolist(), strict=True))
+
+        res = minimize(
+            nll,
+            theta0,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": max_iter, "ftol": 1e-9},
+        )
+        self.params = unpack(res.x)
+
+        return {
+            "nll_final": float(res.fun),
+            "n_iter": int(res.nit),
+            "status": "success" if res.success else "failed",
+            "message": res.message if isinstance(res.message, str) else res.message.decode("utf-8", "ignore"),
+            "spectral_radius": self.params.spectral_radius(),
+        }
+
+
+def _df_to_event_dict(df: pl.DataFrame) -> dict[str, np.ndarray]:
+    """Convert a polars events DataFrame (with mark as string) to the numpy dict form.
+
+    Mark strings are mapped to integer indices in alphabetical order.
+    """
+    times = df["time_start"].to_numpy().astype("datetime64[us]")
+    t0_ref = times.min()
+    t_days = (times - t0_ref).astype("timedelta64[us]").astype(np.float64) / (86_400 * 1e6)
+    marks_sorted = sorted(df["mark"].unique().to_list())
+    mark_to_idx = {m: i for i, m in enumerate(marks_sorted)}
+    mark_idx = np.array([mark_to_idx[m] for m in df["mark"].to_list()], dtype=np.int64)
+    return {
+        "time": t_days,
+        "lon": df["longitude"].to_numpy().astype(np.float64),
+        "lat": df["latitude"].to_numpy().astype(np.float64),
+        "mark": mark_idx,
+    }
