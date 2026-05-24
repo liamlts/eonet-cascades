@@ -13,3 +13,8 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 @pytest.fixture
 def eonet_payload() -> dict:
     return json.loads((FIXTURE_DIR / "eonet_sample.json").read_text())
+
+
+@pytest.fixture
+def usgs_payload() -> dict:
+    return json.loads((FIXTURE_DIR / "usgs_sample.geojson").read_text())
