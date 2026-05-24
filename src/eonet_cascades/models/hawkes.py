@@ -115,3 +115,68 @@ def conditional_intensity(
         spatial = np.exp(-d2 / (2.0 * s_col * s_col)) / (2.0 * math.pi * s_col * s_col)
         lam[k] += float(np.sum(temporal * spatial))
     return lam
+
+
+def hawkes_log_likelihood(
+    params: HawkesParams,
+    events: dict[str, np.ndarray],
+    window: tuple[float, float],
+    pi_k: SpatialDensityFn,
+    bbox: tuple[float, float, float, float],
+    spatial_mass_approx_one: bool = True,
+) -> float:
+    """Compute the log-likelihood of `events` under `params`.
+
+    log L = sum_i log lambda_{k_i}(t_i, x_i | H_{t_i})
+          - sum_k mu_k (t_end - t0)
+          - sum_j sum_k alpha[k_j, k] * (1 - exp(-beta[k_j, k] (t_end - t_j))) * G_x(bbox | x_j, sigma)
+
+    `spatial_mass_approx_one=True` substitutes G_x approx 1 (Assumption A1) — see plan header.
+    """
+    t0, t_end = window
+    t_arr = events["time"]
+    lon_arr = events["lon"]
+    lat_arr = events["lat"]
+    k_arr = events["mark"].astype(np.int64)
+    n = t_arr.shape[0]
+
+    # Sum log-intensity at each event (using only strictly earlier events as history).
+    sum_log = 0.0
+    # Pre-sort if not already.
+    order = np.argsort(t_arr, kind="stable")
+    t_s = t_arr[order]
+    lon_s = lon_arr[order]
+    lat_s = lat_arr[order]
+    k_s = k_arr[order]
+
+    for i in range(n):
+        t_i = t_s[i]
+        x_i = np.array([[lon_s[i], lat_s[i]]])
+        hist = {
+            "time": t_s[:i],
+            "lon": lon_s[:i],
+            "lat": lat_s[:i],
+            "mark": k_s[:i],
+        }
+        lam_vec = conditional_intensity(params, t_i, x_i, hist, pi_k, bbox)
+        lam_i = lam_vec[k_s[i]]
+        if lam_i <= 0:
+            return -np.inf
+        sum_log += math.log(lam_i)
+
+    # Integrated intensity.
+    # Baseline part: sum_k mu_k * (t_end - t0) — pi_k integrates to 1.
+    integral_baseline = float(np.sum(params.mu) * (t_end - t0))
+
+    # Triggering part: for each event j, contribution to total integrated intensity is
+    # sum_k alpha[k_j, k] * (1 - exp(-beta[k_j, k] * (t_end - t_j))) * G_x.
+    if n == 0:
+        integral_trigger = 0.0
+    else:
+        decay = np.exp(-params.beta[k_s, :] * (t_end - t_s)[:, None])  # (n, n_marks)
+        per_event = params.alpha[k_s, :] * (1.0 - decay)  # (n, n_marks)
+        if not spatial_mass_approx_one:
+            raise NotImplementedError("Exact spatial mass not implemented in v1")
+        integral_trigger = float(np.sum(per_event))
+
+    return sum_log - integral_baseline - integral_trigger
