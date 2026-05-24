@@ -29,7 +29,7 @@ class FIRMSFetcher:
         self,
         api_key: str | None,
         rate_per_sec: float = 0.5,
-        source: str = "VIIRS_SNPP_NRT",
+        source: str = "VIIRS_SNPP_SP",
         min_confidence: str = "n",
     ) -> None:
         self._api_key = api_key
@@ -50,9 +50,10 @@ class FIRMSFetcher:
         if bbox is None:
             bbox = (-180.0, -90.0, 180.0, 90.0)
         w, s, e, n = bbox
+        # FIRMS API caps day_range at 5 — window accordingly.
         cursor = since
         while cursor < until:
-            window_end = min(cursor + timedelta(days=10), until)
+            window_end = min(cursor + timedelta(days=5), until)
             day_range = (window_end - cursor).days
             if day_range == 0:
                 day_range = 1

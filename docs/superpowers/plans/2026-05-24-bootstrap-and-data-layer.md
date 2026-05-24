@@ -2443,11 +2443,13 @@ class FIRMSFetcher:
         if bbox is None:
             bbox = (-180.0, -90.0, 180.0, 90.0)
         w, s, e, n = bbox
-        # FIRMS limits queries to ≤10 days per request; iterate.
+        # FIRMS caps day_range at 5 per request; iterate.
         cursor = since
         while cursor < until:
-            window_end = min(cursor + timedelta(days=10), until)
+            window_end = min(cursor + timedelta(days=5), until)
             day_range = (window_end - cursor).days
+            if day_range == 0:
+                day_range = 1
             date_str = cursor.date().isoformat()
             url = f"{BASE}/{self._api_key}/{self._source}/{w},{s},{e},{n}/{day_range}/{date_str}"
             r = self._client.get(url)
