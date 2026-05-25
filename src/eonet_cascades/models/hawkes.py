@@ -316,12 +316,13 @@ def hawkes_log_likelihood_vectorized(
 ) -> float:
     """Vectorized form of `hawkes_log_likelihood`. Mathematically identical.
 
-    Builds three (N, N) matrices — pairwise time delta, squared spatial delta,
-    and pair-indexed (alpha, beta, sigma) lookups — then reduces in one
-    numpy expression. ~50-100x faster than the loop version for N <= 5000.
+    Only the causal lower-triangle of pair indices (i > j) is computed,
+    flattened to 1-D arrays — no wasted compute on non-causal pairs and
+    better cache locality than the dense-(N,N)-matrix variant.
 
-    Memory: ~32 MB per (N, N) float64 matrix at N=2000. Up to ~5000 fits in
-    a few GB. Larger N requires chunking (Plan 4+).
+    Memory: dominated by the ~n*(n-1)/2 flattened pair arrays. At n=2000
+    that's ~16 MB per array; at n=5000 it's ~100 MB. Larger N requires
+    chunking (Plan 4+).
     """
     t0, t_end = window
     t_arr = events["time"]
@@ -334,7 +335,7 @@ def hawkes_log_likelihood_vectorized(
     if n == 0:
         return -float(np.sum(params.mu) * (t_end - t0))
 
-    # Sort by time so the causal mask below is straightforward.
+    # Sort by time so j < i implies t_j < t_i.
     order = np.argsort(t_arr, kind="stable")
     t_s = t_arr[order]
     lon_s = lon_arr[order]
@@ -348,30 +349,31 @@ def hawkes_log_likelihood_vectorized(
         pi_vals[:, kk] = pi_k(kk, x_all, bbox)
     baseline_at_event = params.mu[k_s] * pi_vals[np.arange(n), k_s]  # (n,)
 
-    # Pairwise (n, n) deltas. dt[i, j] = t_s[i] - t_s[j].
-    dt_mat = t_s[:, None] - t_s[None, :]
-    dlon = lon_s[:, None] - lon_s[None, :]
-    dlat = lat_s[:, None] - lat_s[None, :]
-    d2_mat = dlon * dlon + dlat * dlat
-    causal = dt_mat > 0  # j strictly before i
+    # Causal pair indices: only (i, j) with j < i. Flatten to 1-D arrays.
+    # np.tril_indices(n, k=-1) returns (rows, cols) for strict lower triangle.
+    i_idx, j_idx = np.tril_indices(n, k=-1)
 
-    # Pair-indexed params. For pair (i, j): parent=k_s[j], child=k_s[i].
-    parent_idx = k_s[None, :]  # broadcasts to (n, n) along rows
-    child_idx = k_s[:, None]   # broadcasts to (n, n) along cols
-    alpha_pairs = params.alpha[parent_idx, child_idx]  # (n, n)
-    beta_pairs = params.beta[parent_idx, child_idx]
-    sigma_pairs = params.sigma[parent_idx, child_idx]
+    if i_idx.size == 0:
+        trigger_at_event = np.zeros(n)
+    else:
+        dt_flat = t_s[i_idx] - t_s[j_idx]
+        dlon_flat = lon_s[i_idx] - lon_s[j_idx]
+        dlat_flat = lat_s[i_idx] - lat_s[j_idx]
+        d2_flat = dlon_flat * dlon_flat + dlat_flat * dlat_flat
 
-    # Triggering contribution per pair (zeroed on non-causal pairs).
-    # Clip dt for the exp to avoid NaN on the non-causal half (gets zeroed anyway).
-    dt_safe = np.where(causal, dt_mat, 0.0)
-    temporal = beta_pairs * np.exp(-beta_pairs * dt_safe)
-    spatial = np.exp(-d2_mat / (2.0 * sigma_pairs * sigma_pairs)) / (
-        2.0 * np.pi * sigma_pairs * sigma_pairs
-    )
-    contrib = np.where(causal, alpha_pairs * temporal * spatial, 0.0)
-    # Sum over parents j for each child i → per-event triggering intensity.
-    trigger_at_event = contrib.sum(axis=1)
+        # For pair (i, j): parent = k_s[j], child = k_s[i].
+        alpha_flat = params.alpha[k_s[j_idx], k_s[i_idx]]
+        beta_flat = params.beta[k_s[j_idx], k_s[i_idx]]
+        sigma_flat = params.sigma[k_s[j_idx], k_s[i_idx]]
+        sigma2_flat = sigma_flat * sigma_flat
+
+        temporal_flat = beta_flat * np.exp(-beta_flat * dt_flat)
+        spatial_flat = np.exp(-d2_flat / (2.0 * sigma2_flat)) / (2.0 * np.pi * sigma2_flat)
+        contrib_flat = alpha_flat * temporal_flat * spatial_flat
+
+        # Group-sum into trigger_at_event by child index i_idx.
+        trigger_at_event = np.zeros(n, dtype=np.float64)
+        np.add.at(trigger_at_event, i_idx, contrib_flat)
 
     lam_at_event = baseline_at_event + trigger_at_event
     if np.any(lam_at_event <= 0):
