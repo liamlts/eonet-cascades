@@ -212,7 +212,7 @@ class ParametricHawkes:
     ) -> float:
         if isinstance(events, pl.DataFrame):
             events = _df_to_event_dict(events)
-        return hawkes_log_likelihood(self.params, events, window, self.pi_k, self.bbox)
+        return hawkes_log_likelihood_vectorized(self.params, events, window, self.pi_k, self.bbox)
 
     def sample(self, history, window):  # pragma: no cover — placeholder
         raise NotImplementedError("Sampling lands in a later task")
@@ -249,7 +249,7 @@ class ParametricHawkes:
 
         def nll(theta: np.ndarray) -> float:
             params = unpack(theta)
-            ll = hawkes_log_likelihood(params, events, window, self.pi_k, self.bbox)
+            ll = hawkes_log_likelihood_vectorized(params, events, window, self.pi_k, self.bbox)
             if not np.isfinite(ll):
                 return 1e20
             return -ll
