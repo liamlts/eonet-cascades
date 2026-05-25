@@ -224,11 +224,15 @@ class ParametricHawkes:
         *,
         fix_alpha_zero: bool = False,
         max_iter: int = 200,
+        l1_lambda: float = 0.0,
     ) -> dict[str, Any]:
         """MLE fit of (mu, alpha, beta, sigma) via L-BFGS-B with positive bounds.
 
         `fix_alpha_zero=True` clamps alpha=0 (homogeneous Poisson baseline-only fit) --
         useful for validating the mu recovery path independently of the triggering kernels.
+
+        `l1_lambda` adds an L1 penalty on alpha entries (l1_lambda * sum(|alpha|)) to the
+        objective, encouraging sparsity. Default 0.0 reproduces the unregularized MLE.
         """
         if isinstance(events, pl.DataFrame):
             events = _df_to_event_dict(events)
@@ -252,7 +256,8 @@ class ParametricHawkes:
             ll = hawkes_log_likelihood_vectorized(params, events, window, self.pi_k, self.bbox)
             if not np.isfinite(ll):
                 return 1e20
-            return -ll
+            penalty = l1_lambda * float(np.sum(np.abs(params.alpha))) if l1_lambda > 0 else 0.0
+            return -ll + penalty
 
         theta0 = np.concatenate(
             [self.params.mu, self.params.alpha.ravel(), self.params.beta.ravel(), self.params.sigma.ravel()]
@@ -284,6 +289,7 @@ class ParametricHawkes:
             "status": "success" if res.success else "failed",
             "message": res.message if isinstance(res.message, str) else res.message.decode("utf-8", "ignore"),
             "spectral_radius": self.params.spectral_radius(),
+            "l1_lambda": float(l1_lambda),
         }
 
 
