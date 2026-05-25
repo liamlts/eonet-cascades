@@ -54,7 +54,7 @@ def test_synthetic_recovery_within_tolerance():
         area = (max_lon - min_lon) * (max_lat - min_lat)
         return np.full(x.shape[0], 1.0 / area)
 
-    model = ParametricHawkes(K=n_marks, bbox=bbox, pi_k=_uniform_pi)  # noqa: N803
+    model = ParametricHawkes(K=n_marks, bbox=bbox, pi_k=_uniform_pi)
     result = model.fit(events, (0.0, t_end), max_iter=400)
     print("Fit status:", result["status"], "NLL:", result["nll_final"])
     print("Recovered mu:", model.params.mu)
