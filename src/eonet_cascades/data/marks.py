@@ -47,6 +47,38 @@ _REGISTRY: dict[str, dict[str, Mark]] = {
         "dust storm": Mark.DUST_HAZE,
         "dust devil": Mark.DUST_HAZE,
         "lake-effect snow": Mark.SEA_LAKE_ICE,
+        # winter storm variants -> severe_storm
+        "winter weather": Mark.SEVERE_STORM,
+        "heavy snow": Mark.SEVERE_STORM,
+        "ice storm": Mark.SEVERE_STORM,
+        "sleet": Mark.SEVERE_STORM,
+        "freezing fog": Mark.SEVERE_STORM,
+        # marine + wind + lightning -> severe_storm
+        "marine thunderstorm wind": Mark.SEVERE_STORM,
+        "strong wind": Mark.SEVERE_STORM,
+        "marine high wind": Mark.SEVERE_STORM,
+        "marine strong wind": Mark.SEVERE_STORM,
+        "marine hail": Mark.SEVERE_STORM,
+        "lightning": Mark.SEVERE_STORM,
+        "marine lightning": Mark.SEVERE_STORM,
+        # temperature extreme additions
+        "frost/freeze": Mark.TEMPERATURE_EXTREME,
+        # tornado variants
+        "waterspout": Mark.TORNADO,
+        "funnel cloud": Mark.TORNADO,
+        # tropical cyclone variants
+        "storm surge/tide": Mark.TROPICAL_CYCLONE,
+        "marine tropical storm": Mark.TROPICAL_CYCLONE,
+        "marine tropical depression": Mark.TROPICAL_CYCLONE,
+        "marine hurricane/typhoon": Mark.TROPICAL_CYCLONE,
+        # flood variants
+        "heavy rain": Mark.FLOOD,
+        "lakeshore flood": Mark.FLOOD,
+        # misc
+        "avalanche": Mark.LANDSLIDE,
+        "volcanic ashfall": Mark.VOLCANIC_ERUPTION,
+        "dense fog": Mark.DUST_HAZE,
+        "dense smoke": Mark.DUST_HAZE,
     },
     "firms": {
         "active_fire": Mark.WILDFIRE,

@@ -35,6 +35,52 @@ def test_unknown_mark_returns_none():
     assert harmonize_mark("unknown_catalog", "wildfires") is None
 
 
+def test_noaa_winter_storm_variants_to_severe_storm():
+    assert harmonize_mark("noaa", "Winter Weather") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Heavy Snow") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Ice Storm") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Sleet") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Freezing Fog") == Mark.SEVERE_STORM
+
+
+def test_noaa_marine_and_wind_variants_to_severe_storm():
+    assert harmonize_mark("noaa", "Marine Thunderstorm Wind") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Strong Wind") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Marine High Wind") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Marine Strong Wind") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Marine Hail") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Lightning") == Mark.SEVERE_STORM
+    assert harmonize_mark("noaa", "Marine Lightning") == Mark.SEVERE_STORM
+
+
+def test_noaa_temperature_extremes_extended():
+    assert harmonize_mark("noaa", "Frost/Freeze") == Mark.TEMPERATURE_EXTREME
+
+
+def test_noaa_tornado_variants():
+    assert harmonize_mark("noaa", "Waterspout") == Mark.TORNADO
+    assert harmonize_mark("noaa", "Funnel Cloud") == Mark.TORNADO
+
+
+def test_noaa_tropical_cyclone_extensions():
+    assert harmonize_mark("noaa", "Storm Surge/Tide") == Mark.TROPICAL_CYCLONE
+    assert harmonize_mark("noaa", "Marine Tropical Storm") == Mark.TROPICAL_CYCLONE
+    assert harmonize_mark("noaa", "Marine Tropical Depression") == Mark.TROPICAL_CYCLONE
+    assert harmonize_mark("noaa", "Marine Hurricane/Typhoon") == Mark.TROPICAL_CYCLONE
+
+
+def test_noaa_flood_extensions():
+    assert harmonize_mark("noaa", "Heavy Rain") == Mark.FLOOD
+    assert harmonize_mark("noaa", "Lakeshore Flood") == Mark.FLOOD
+
+
+def test_noaa_other_extensions():
+    assert harmonize_mark("noaa", "Avalanche") == Mark.LANDSLIDE
+    assert harmonize_mark("noaa", "Volcanic Ashfall") == Mark.VOLCANIC_ERUPTION
+    assert harmonize_mark("noaa", "Dense Fog") == Mark.DUST_HAZE
+    assert harmonize_mark("noaa", "Dense Smoke") == Mark.DUST_HAZE
+
+
 def test_all_unified_marks_have_at_least_one_source_mapping():
     # Every Mark in the v1 vocab should be reachable from at least one catalog.
     from eonet_cascades.data.marks import _REGISTRY
