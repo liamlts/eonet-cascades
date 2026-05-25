@@ -36,12 +36,15 @@ CREATE INDEX IF NOT EXISTS idx_events_catalog ON events(source_catalog);
 class EventStore:
     """Thin wrapper over DuckDB with the unified Event schema."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self.path = Path(path)
+        self.read_only = read_only
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = duckdb.connect(str(self.path))
+        self._conn = duckdb.connect(str(self.path), read_only=read_only)
 
     def init_schema(self) -> None:
+        if self.read_only:
+            return  # nothing to do — DDL is a write
         self._conn.execute(_DDL)
 
     def write_events(self, events: Iterable[Event]) -> int:
