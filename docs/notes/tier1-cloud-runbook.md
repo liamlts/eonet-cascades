@@ -23,19 +23,43 @@ Estimated cost: ~$15 (≈$0.75 / hr).
 
 ## Step 2 — Bootstrap the cloud machine
 
-SSH in, install uv, clone the repo, sync the dev + ml extras:
+SSH in, install uv + gh, authenticate gh, clone the (private) repo, sync the dev + ml extras:
 
 ```bash
 ssh ubuntu@<INSTANCE_IP>
 
 # On the cloud instance:
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# gh CLI for the private clone (Lambda Labs Ubuntu 22.04 doesn't ship gh)
+(type -p gh >/dev/null) || (
+  sudo mkdir -p -m 755 /etc/apt/keyrings
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+  sudo apt-get update && sudo apt-get install -y gh
+)
+
+# Cartopy needs proj + geos C libs; uv wheel install fails without them
+sudo apt-get install -y libproj-dev libgeos-dev proj-bin
+
 source ~/.bashrc
 
-git clone https://github.com/<YOUR_USERNAME>/eonet-cascades.git
+gh auth login --hostname github.com --git-protocol https
+# Prompts: choose "GitHub.com" → "HTTPS" → "Login with a web browser".
+# gh prints a one-time code; open https://github.com/login/device on
+# your Mac and paste it. Approves in seconds.
+
+gh repo clone <YOUR_USERNAME>/eonet-cascades
 cd eonet-cascades
 uv sync --extra dev --extra ml
 ```
+
+If the cartopy install still fails despite the apt deps, drop it from the
+`ml` extra for this run — only the training command itself is needed, not
+the plotting stack. Plotting (Task 13 attribution heatmap) runs locally on
+the Mac after results are pulled back.
 
 ---
 
