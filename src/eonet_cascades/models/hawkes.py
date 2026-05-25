@@ -257,13 +257,16 @@ class ParametricHawkes:
         theta0 = np.concatenate(
             [self.params.mu, self.params.alpha.ravel(), self.params.beta.ravel(), self.params.sigma.ravel()]
         )
-        # Bounds: mu >= 1e-6, alpha in [0, 0.95] (stability), beta >= 1e-3, sigma >= 1e-3.
+        # Bounds: keep alpha bounded *strictly* above 0; scipy's finite-difference
+        # gradient steps will otherwise occasionally land just below 0 and raise.
         lower = np.concatenate(
-            [np.full(n_mu, 1e-6), np.zeros(n_pair), np.full(n_pair, 1e-3), np.full(n_pair, 1e-3)]
+            [np.full(n_mu, 1e-6), np.full(n_pair, 1e-6), np.full(n_pair, 1e-3), np.full(n_pair, 1e-3)]
         )
         upper = np.concatenate(
             [np.full(n_mu, 100.0), np.full(n_pair, 0.95), np.full(n_pair, 100.0), np.full(n_pair, 100.0)]
         )
+        # Clamp theta0 inside bounds to avoid scipy's strict bound check rejecting it.
+        theta0 = np.clip(theta0, lower + 1e-9, upper - 1e-9)
         bounds = list(zip(lower.tolist(), upper.tolist(), strict=True))
 
         res = minimize(
