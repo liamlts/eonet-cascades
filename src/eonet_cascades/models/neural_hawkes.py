@@ -113,3 +113,74 @@ class NeuralHawkes(nn.Module):
             "log_p_x": torch.stack(log_p_x_list),
             "h_at_events": torch.stack(h_event_list),
         }
+
+    def log_likelihood(
+        self,
+        times: torch.Tensor,
+        lons: torch.Tensor,
+        lats: torch.Tensor,
+        marks: torch.Tensor,
+        window: tuple[float, float],
+        n_mc_samples: int = 20,
+    ) -> torch.Tensor:
+        """Compute log L over a single 1-D event sequence in [t_start, t_end].
+
+        Returns a scalar tensor that supports backprop.
+        """
+        t_start, t_end = window
+        out = self.forward(times, lons, lats, marks)
+        # Per-event log contribution.
+        per_event = out["log_lambda_t"] + out["log_p_mark"] + out["log_p_x"]
+        sum_per_event = per_event.sum()
+
+        # Approximate integral of lambda_t over [t_start, t_end] via Monte Carlo
+        # using the model's own hidden state at sample times.
+        device = times.device
+        gen = torch.Generator(device="cpu")
+        gen.manual_seed(0)
+        sample_times, _ = torch.sort(
+            torch.rand(n_mc_samples, generator=gen) * (t_end - t_start) + t_start
+        )
+        sample_times = sample_times.to(device)
+        lam_at_samples = self._lambda_t_at(times, lons, lats, marks, sample_times)
+        integral = lam_at_samples.mean() * (t_end - t_start)
+        return sum_per_event - integral
+
+    def _lambda_t_at(
+        self,
+        event_times: torch.Tensor,
+        event_lons: torch.Tensor,
+        event_lats: torch.Tensor,
+        event_marks: torch.Tensor,
+        query_times: torch.Tensor,
+    ) -> torch.Tensor:
+        """Evaluate lambda_t at arbitrary query_times given an event history."""
+        import torch.nn.functional as nnf  # local import keeps top-of-file clean
+
+        device = event_times.device
+        hidden_dim = self.hidden_dim
+        c_post = torch.zeros(1, hidden_dim, device=device)
+        c_bar = torch.zeros(1, hidden_dim, device=device)
+        delta = torch.ones(1, hidden_dim, device=device)
+        o = torch.zeros(1, hidden_dim, device=device)
+        t_last = torch.zeros(1, device=device)
+        qt_sorted, _ = torch.sort(query_times)
+        out_vals: list[torch.Tensor] = []
+        ei = 0
+        n_events = event_times.shape[0]
+        for q in qt_sorted:
+            # Advance the cell state up to (but not past) q by processing events <= q.
+            while ei < n_events and event_times[ei] <= q:
+                dt = (event_times[ei:ei + 1] - t_last).clamp(min=0.0).unsqueeze(-1)
+                h_at_t, _ = self.cell.evolve(c_post, c_bar, delta, o, dt)
+                ev_inp = self._event_input(
+                    event_lons[ei:ei + 1], event_lats[ei:ei + 1], event_marks[ei:ei + 1]
+                )
+                _, c_post, c_bar, delta, o = self.cell.update(ev_inp, h_at_t, c_post, c_bar)
+                t_last = event_times[ei:ei + 1]
+                ei += 1
+            dt = (q.unsqueeze(0) - t_last).clamp(min=0.0).unsqueeze(-1)
+            h_at_q, _ = self.cell.evolve(c_post, c_bar, delta, o, dt)
+            lam = nnf.softplus(self.W_lambda_t(h_at_q)).clamp_min(1e-12)
+            out_vals.append(lam.squeeze())
+        return torch.stack(out_vals)
