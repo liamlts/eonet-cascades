@@ -27,14 +27,14 @@ class CTLSTMCell(nn.Module):
 
     def update(
         self,
-        x: torch.Tensor,            # (B, input_dim) — event embedding
-        h_prev: torch.Tensor,       # (B, hidden_dim)
-        c_prev: torch.Tensor,       # (B, hidden_dim)
-        c_bar_prev: torch.Tensor,   # (B, hidden_dim)
+        x: torch.Tensor,  # (B, input_dim) — event embedding
+        h_prev: torch.Tensor,  # (B, hidden_dim)
+        c_prev: torch.Tensor,  # (B, hidden_dim)
+        c_bar_prev: torch.Tensor,  # (B, hidden_dim)
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Run one event step. Returns (h, c_post, c_bar, delta, o)."""
-        u = torch.cat([x, h_prev], dim=-1)         # (B, in + hid)
-        gates = self.W(u)                            # (B, 7 * hid)
+        u = torch.cat([x, h_prev], dim=-1)  # (B, in + hid)
+        gates = self.W(u)  # (B, 7 * hid)
         i, f, g, o, i_bar, f_bar, d = gates.chunk(7, dim=-1)
         i = torch.sigmoid(i)
         f = torch.sigmoid(f)
@@ -51,11 +51,11 @@ class CTLSTMCell(nn.Module):
 
     def evolve(
         self,
-        c_post: torch.Tensor,   # (B, hidden_dim) — cell just after last event
-        c_bar: torch.Tensor,    # (B, hidden_dim) — asymptote
-        delta: torch.Tensor,    # (B, hidden_dim) — decay rate per dim
-        o: torch.Tensor,        # (B, hidden_dim) — output gate at last event
-        dt: torch.Tensor,       # (B, 1) or (B,) — elapsed time since last event
+        c_post: torch.Tensor,  # (B, hidden_dim) — cell just after last event
+        c_bar: torch.Tensor,  # (B, hidden_dim) — asymptote
+        delta: torch.Tensor,  # (B, hidden_dim) — decay rate per dim
+        o: torch.Tensor,  # (B, hidden_dim) — output gate at last event
+        dt: torch.Tensor,  # (B, 1) or (B,) — elapsed time since last event
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute (h(t), c(t)) at time t = t_last_event + dt via closed-form decay."""
         if dt.dim() == 1:

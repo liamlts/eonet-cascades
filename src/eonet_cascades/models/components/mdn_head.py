@@ -43,27 +43,27 @@ class MDNHead(nn.Module):
 
     def log_prob(self, h: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Compute log p(x | h). Shapes: h (batch, input_dim), x (batch, 2). Returns (batch,)."""
-        means, chol, log_w = self._unpack(h)             # (b,k,2), (b,k,2,2), (b,k)
+        means, chol, log_w = self._unpack(h)  # (b,k,2), (b,k,2,2), (b,k)
         # Per-component log Gaussian density.
         # log N(x; mu, L L^T) = -log(2pi) - log|L| - 0.5 * ||L^-1 (x - mu)||^2
-        diff = (x.unsqueeze(1) - means)                  # (b, k, 2)
+        diff = x.unsqueeze(1) - means  # (b, k, 2)
         # Solve L * z = diff for z: z = L^{-1} diff.
         chol_inv_diff = torch.linalg.solve_triangular(
             chol, diff.unsqueeze(-1), upper=False
-        ).squeeze(-1)                                    # (b, k, 2)
-        quad = (chol_inv_diff * chol_inv_diff).sum(dim=-1)   # (b, k)
+        ).squeeze(-1)  # (b, k, 2)
+        quad = (chol_inv_diff * chol_inv_diff).sum(dim=-1)  # (b, k)
         log_det = torch.log(chol[..., 0, 0]) + torch.log(chol[..., 1, 1])  # (b, k)
-        comp_log = -self._log_2pi - log_det - 0.5 * quad                   # (b, k)
-        return torch.logsumexp(log_w + comp_log, dim=-1)                   # (b,)
+        comp_log = -self._log_2pi - log_det - 0.5 * quad  # (b, k)
+        return torch.logsumexp(log_w + comp_log, dim=-1)  # (b,)
 
     def sample(self, h: torch.Tensor) -> torch.Tensor:
         """Sample one point per row from the mixture. Returns (batch, 2)."""
         means, chol, log_w = self._unpack(h)
         # Sample component index via Gumbel-max trick.
         gumbel = -torch.log(-torch.log(torch.rand_like(log_w) + 1e-12) + 1e-12)
-        idx = (log_w + gumbel).argmax(dim=-1)            # (batch,)
+        idx = (log_w + gumbel).argmax(dim=-1)  # (batch,)
         b_idx = torch.arange(h.shape[0], device=h.device)
-        mu = means[b_idx, idx]                           # (batch, 2)
-        chol_sel = chol[b_idx, idx]                      # (batch, 2, 2)
+        mu = means[b_idx, idx]  # (batch, 2)
+        chol_sel = chol[b_idx, idx]  # (batch, 2, 2)
         eps = torch.randn(h.shape[0], 2, device=h.device)
         return mu + (chol_sel @ eps.unsqueeze(-1)).squeeze(-1)

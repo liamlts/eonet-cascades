@@ -111,9 +111,9 @@ def conditional_intensity(
     # For each past event j with mark k_j, and each child mark k,
     # contribution = alpha[k_j, k] * beta[k_j, k] * exp(-beta*dt) * Gauss2D(d2; sigma[k_j, k])
     for k in range(n_marks):
-        a_col = params.alpha[k_past, k]       # (M,)
-        b_col = params.beta[k_past, k]        # (M,)
-        s_col = params.sigma[k_past, k]       # (M,)
+        a_col = params.alpha[k_past, k]  # (M,)
+        b_col = params.beta[k_past, k]  # (M,)
+        s_col = params.sigma[k_past, k]  # (M,)
         temporal = a_col * b_col * np.exp(-b_col * dt)
         spatial = np.exp(-d2 / (2.0 * s_col * s_col)) / (2.0 * math.pi * s_col * s_col)
         lam[k] += float(np.sum(temporal * spatial))
@@ -260,15 +260,30 @@ class ParametricHawkes:
             return -ll + penalty
 
         theta0 = np.concatenate(
-            [self.params.mu, self.params.alpha.ravel(), self.params.beta.ravel(), self.params.sigma.ravel()]
+            [
+                self.params.mu,
+                self.params.alpha.ravel(),
+                self.params.beta.ravel(),
+                self.params.sigma.ravel(),
+            ]
         )
         # Bounds: keep alpha bounded *strictly* above 0; scipy's finite-difference
         # gradient steps will otherwise occasionally land just below 0 and raise.
         lower = np.concatenate(
-            [np.full(n_mu, 1e-6), np.full(n_pair, 1e-6), np.full(n_pair, 1e-3), np.full(n_pair, 1e-3)]
+            [
+                np.full(n_mu, 1e-6),
+                np.full(n_pair, 1e-6),
+                np.full(n_pair, 1e-3),
+                np.full(n_pair, 1e-3),
+            ]
         )
         upper = np.concatenate(
-            [np.full(n_mu, 100.0), np.full(n_pair, 0.95), np.full(n_pair, 100.0), np.full(n_pair, 100.0)]
+            [
+                np.full(n_mu, 100.0),
+                np.full(n_pair, 0.95),
+                np.full(n_pair, 100.0),
+                np.full(n_pair, 100.0),
+            ]
         )
         # Clamp theta0 inside bounds to avoid scipy's strict bound check rejecting it.
         theta0 = np.clip(theta0, lower + 1e-9, upper - 1e-9)
@@ -287,7 +302,9 @@ class ParametricHawkes:
             "nll_final": float(res.fun),
             "n_iter": int(res.nit),
             "status": "success" if res.success else "failed",
-            "message": res.message if isinstance(res.message, str) else res.message.decode("utf-8", "ignore"),
+            "message": res.message
+            if isinstance(res.message, str)
+            else res.message.decode("utf-8", "ignore"),
             "spectral_radius": self.params.spectral_radius(),
             "l1_lambda": float(l1_lambda),
         }
@@ -411,7 +428,7 @@ class KDESpatialBaseline:
     via nearest-grid lookup.
     """
 
-    densities: np.ndarray   # shape (n_marks, n_lat, n_lon)
+    densities: np.ndarray  # shape (n_marks, n_lat, n_lon)
     bbox: tuple[float, float, float, float]
     grid_step: float
     mark_names: list[str]
@@ -448,7 +465,8 @@ class KDESpatialBaseline:
                 lons_k = lon[mask]
                 lats_k = lat[mask]
                 hist, _, _ = np.histogram2d(
-                    lats_k, lons_k,
+                    lats_k,
+                    lons_k,
                     bins=[n_lat, n_lon],
                     range=[[min_lat, max_lat], [min_lon, max_lon]],
                 )

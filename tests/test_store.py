@@ -33,7 +33,9 @@ def store(tmp_path):
 
 
 def test_init_schema_creates_events_table(store):
-    rows = store.query_sql("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()
+    rows = store.query_sql(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+    ).fetchall()
     assert ("events",) in rows
 
 

@@ -53,9 +53,12 @@ def test_end_to_end_ingest(tmp_path, monkeypatch):
         app,
         [
             "ingest",
-            "--catalogs", "eonet,usgs,noaa,firms",
-            "--since", "2024-01-01",
-            "--until", "2024-02-15",
+            "--catalogs",
+            "eonet,usgs,noaa,firms",
+            "--since",
+            "2024-01-01",
+            "--until",
+            "2024-02-15",
         ],
     )
     if result.exit_code != 0:

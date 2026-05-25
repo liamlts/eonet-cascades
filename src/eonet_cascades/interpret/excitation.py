@@ -55,8 +55,11 @@ def plot_excitation_heatmap(
             val = params.alpha[i, j]
             if val > 0.01:
                 ax.text(
-                    j, i, f"{val:.2f}",
-                    ha="center", va="center",
+                    j,
+                    i,
+                    f"{val:.2f}",
+                    ha="center",
+                    va="center",
                     color="white" if val > vmax / 2 else "black",
                     fontsize=8,
                 )

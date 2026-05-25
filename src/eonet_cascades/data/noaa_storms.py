@@ -60,9 +60,7 @@ class NOAAStormsFetcher:
     def _download_year(self, year: int) -> bytes:
         index_html = self._client.get(INDEX_URL).text
         full_names = [
-            m.group(0)
-            for m in _FILENAME_RE.finditer(index_html)
-            if int(m.group(1)) == year
+            m.group(0) for m in _FILENAME_RE.finditer(index_html) if int(m.group(1)) == year
         ]
         if not full_names:
             return b""

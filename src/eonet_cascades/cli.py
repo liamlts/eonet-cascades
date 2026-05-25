@@ -62,11 +62,7 @@ def ingest(
     """Fetch + harmonize + dedup + persist events from the specified catalogs."""
     cfg = load_data_config(config) if config else DataConfig()
     since_dt = datetime.fromisoformat(since).replace(tzinfo=UTC)
-    until_dt = (
-        datetime.fromisoformat(until).replace(tzinfo=UTC)
-        if until
-        else datetime.now(UTC)
-    )
+    until_dt = datetime.fromisoformat(until).replace(tzinfo=UTC) if until else datetime.now(UTC)
     cat_list = [c.strip() for c in catalogs.split(",") if c.strip()]
     counts = run_ingest(cfg, since=since_dt, until=until_dt, catalogs=cat_list)
     console.print(counts)
@@ -103,6 +99,7 @@ def model_train_hawkes(
     # mode is not enough — it still conflicts with an outstanding RW lock.
     import shutil
     import tempfile
+
     snapshot_dir = Path(tempfile.mkdtemp(prefix="eonet_tier0_"))
     snapshot_path = snapshot_dir / "events.duckdb"
     console.print(f"Snapshotting DB to {snapshot_path}...")
@@ -136,9 +133,7 @@ def model_train_hawkes(
     result = model.fit(events_dict, (0.0, t_end_days), max_iter=max_iter, l1_lambda=l1_lambda)
     console.print(result)
 
-    out = out_dir or (
-        Path("runs") / "tier0" / datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    )
+    out = out_dir or (Path("runs") / "tier0" / datetime.now(UTC).strftime("%Y%m%d_%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "params.pkl", "wb") as f:
         pickle.dump(
@@ -207,16 +202,13 @@ def model_train_neural_hawkes(
     store = EventStore(snapshot_path, read_only=True)
     df_train = store.query_events(time_start=since_dt, time_end=until_dt)
     df_val = store.query_events(time_start=until_dt, time_end=val_until_dt)
-    console.print(
-        f"Loaded {df_train.height:,} train events and {df_val.height:,} val events"
-    )
+    console.print(f"Loaded {df_train.height:,} train events and {df_val.height:,} val events")
     if df_train.height > sample:
         df_train = df_train.sample(sample, seed=seed)
         console.print(f"Subsampled train to {df_train.height:,}")
 
     mark_names = sorted(
-        set(df_train["mark"].unique().to_list())
-        | set(df_val["mark"].unique().to_list())
+        set(df_train["mark"].unique().to_list()) | set(df_val["mark"].unique().to_list())
     )
     n_marks = len(mark_names)
     mark_to_idx = {m: i for i, m in enumerate(mark_names)}
@@ -227,15 +219,10 @@ def model_train_neural_hawkes(
         if df.height == 0:
             return []
         times_np = df["time_start"].to_numpy().astype("datetime64[us]")
-        t_arr = (
-            (times_np - np.datetime64(t0_dt.replace(tzinfo=None)))
-            .astype("timedelta64[us]")
-            .astype(np.float64)
-            / (86_400 * 1e6)
-        )
-        marks_idx = np.array(
-            [mark_to_idx[m] for m in df["mark"].to_list()], dtype=np.int64
-        )
+        t_arr = (times_np - np.datetime64(t0_dt.replace(tzinfo=None))).astype(
+            "timedelta64[us]"
+        ).astype(np.float64) / (86_400 * 1e6)
+        marks_idx = np.array([mark_to_idx[m] for m in df["mark"].to_list()], dtype=np.int64)
         chunks: list[TrainChunk] = []
         max_t = float(t_arr.max())
         c_start = 0.0
@@ -246,12 +233,8 @@ def model_train_neural_hawkes(
                 chunks.append(
                     TrainChunk(
                         times=torch.tensor(t_arr[mask], dtype=torch.float32),
-                        lons=torch.tensor(
-                            df["longitude"].to_numpy()[mask], dtype=torch.float32
-                        ),
-                        lats=torch.tensor(
-                            df["latitude"].to_numpy()[mask], dtype=torch.float32
-                        ),
+                        lons=torch.tensor(df["longitude"].to_numpy()[mask], dtype=torch.float32),
+                        lats=torch.tensor(df["latitude"].to_numpy()[mask], dtype=torch.float32),
                         marks=torch.tensor(marks_idx[mask], dtype=torch.long),
                         window=(c_start, c_end),
                     )
@@ -261,24 +244,18 @@ def model_train_neural_hawkes(
 
     train_chunks = chunked(df_train, since_dt)
     val_chunks = chunked(df_val, until_dt)
-    console.print(
-        f"Built {len(train_chunks)} train chunks, {len(val_chunks)} val chunks"
-    )
+    console.print(f"Built {len(train_chunks)} train chunks, {len(val_chunks)} val chunks")
 
     model = NeuralHawkes(n_marks=n_marks, hidden_dim=hidden_dim).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = CosineAnnealingLR(
-        optimizer, T_max=n_epochs * max(1, len(train_chunks))
-    )
+    scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs * max(1, len(train_chunks)))
 
     best_val_nll = float("inf")
     best_state: dict[str, torch.Tensor] | None = None
     history: list[dict] = []
     for epoch in range(n_epochs):
         t0_e = time.perf_counter()
-        train_info = train_one_epoch(
-            model, train_chunks, optimizer, scheduler, device=device
-        )
+        train_info = train_one_epoch(model, train_chunks, optimizer, scheduler, device=device)
         val_info = _tier1_eval_loop(model, val_chunks, device=device)
         elapsed = time.perf_counter() - t0_e
         record = {
@@ -293,9 +270,7 @@ def model_train_neural_hawkes(
             best_val_nll = val_info["nll_per_event"]
             best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
 
-    out = out_dir or (
-        Path("runs") / "tier1" / datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    )
+    out = out_dir or (Path("runs") / "tier1" / datetime.now(UTC).strftime("%Y%m%d_%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
@@ -320,9 +295,7 @@ def model_train_neural_hawkes(
     store.close()
 
 
-def _tier1_eval_loop(
-    model: NeuralHawkes, chunks: list, device: str
-) -> dict[str, float]:
+def _tier1_eval_loop(model: NeuralHawkes, chunks: list, device: str) -> dict[str, float]:
     """Evaluate val/test NLL with no_grad."""
     import torch as _torch
 

@@ -31,7 +31,9 @@ class USGSFetcher:
         # CONUS+MX seismicity at M>=2.5 is ~5k events, well under the cap.
         cursor = since
         while cursor < until:
-            year_end = cursor.replace(year=cursor.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            year_end = cursor.replace(
+                year=cursor.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
             window_end = min(year_end, until)
             params: dict[str, str] = {
                 "format": "geojson",

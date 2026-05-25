@@ -90,4 +90,6 @@ def test_neural_cascade_recovery():
     flat_idx = np.argsort(a_np.flatten())[::-1]
     top3_in_nonzero = sum(1 for idx in flat_idx[:3] if nonzero_mask.flatten()[idx])
     print(f"top-3 attribution entries in true non-zero positions: {top3_in_nonzero}/3")
-    assert top3_in_nonzero >= 2, f"only {top3_in_nonzero}/3 top-attribution entries are true cascades"
+    assert top3_in_nonzero >= 2, (
+        f"only {top3_in_nonzero}/3 top-attribution entries are true cascades"
+    )

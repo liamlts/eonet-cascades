@@ -82,10 +82,15 @@ def assign_dedup_groups(
                 j = idxs[j_pos]
                 if events[j].time_start - events[i].time_start > t.temporal:
                     break
-                if _haversine_km(
-                    events[i].longitude, events[i].latitude,
-                    events[j].longitude, events[j].latitude,
-                ) <= t.spatial_km:
+                if (
+                    _haversine_km(
+                        events[i].longitude,
+                        events[i].latitude,
+                        events[j].longitude,
+                        events[j].latitude,
+                    )
+                    <= t.spatial_km
+                ):
                     union(i, j)
 
     # Materialize stable group ids: hash of sorted member event_ids.

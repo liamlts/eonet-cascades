@@ -56,8 +56,7 @@ class DataConfig(BaseSettings):
         """Verify the data root exists (drive mounted). Raise if not."""
         if not self.data_root.exists():
             raise FileNotFoundError(
-                f"data_root does not exist: {self.data_root}. "
-                "Is the external drive mounted?"
+                f"data_root does not exist: {self.data_root}. Is the external drive mounted?"
             )
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.manifests_dir.mkdir(parents=True, exist_ok=True)

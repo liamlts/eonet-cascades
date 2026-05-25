@@ -57,6 +57,7 @@ class FIRMSFetcher:
         # FIRMS uses 400 Bad Request as its rate-limit response (not 429).
         # The client retries 5xx only, so we catch 4xx here, back off, retry once.
         from rich.console import Console
+
         log = Console(file=sys.stderr)
 
         cursor = since
@@ -74,17 +75,13 @@ class FIRMSFetcher:
                 r = self._client.get(url)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 400:
-                    log.log(
-                        f"[firms] 400 on {date_str}/+{day_range}d — sleeping 60s then retrying"
-                    )
+                    log.log(f"[firms] 400 on {date_str}/+{day_range}d — sleeping 60s then retrying")
                     time.sleep(60)
                     try:
                         r = self._client.get(url)
                     except httpx.HTTPStatusError:
                         skipped_windows += 1
-                        log.log(
-                            f"[firms] still failing on {date_str}/+{day_range}d — skipping"
-                        )
+                        log.log(f"[firms] still failing on {date_str}/+{day_range}d — skipping")
                         cursor = window_end
                         n_windows += 1
                         continue
@@ -98,16 +95,14 @@ class FIRMSFetcher:
                     f"[firms] progress: {n_windows}/{total_windows} windows "
                     f"({100 * n_windows / total_windows:.1f}%), cursor={date_str}"
                 )
-        log.log(
-            f"[firms] complete: {n_windows} windows, {skipped_windows} skipped after retries"
-        )
+        log.log(f"[firms] complete: {n_windows} windows, {skipped_windows} skipped after retries")
 
     def _iter_raw_from_csv(self, text: str) -> Iterable[RawEvent]:
         df = pl.read_csv(io.StringIO(text), infer_schema_length=1000, ignore_errors=True)
         if df.height == 0:
             return
         for i, row in enumerate(df.iter_rows(named=True)):
-            sid = f"{row.get('acq_date','')}_{row.get('acq_time','')}_{row.get('latitude','')}_{row.get('longitude','')}_{i}"
+            sid = f"{row.get('acq_date', '')}_{row.get('acq_time', '')}_{row.get('latitude', '')}_{row.get('longitude', '')}_{i}"
             yield RawEvent(
                 source_catalog="firms",
                 source_id=sid,

@@ -28,9 +28,9 @@ def test_synthetic_recovery_within_tolerance():
     mu_true = np.array([0.5, 0.3, 0.2])
     alpha_true = np.array(
         [
-            [0.30, 0.10, 0.00],   # mark 0 -> mark 0, weak -> mark 1, no -> mark 2
-            [0.00, 0.40, 0.15],   # mark 1 -> mark 1 self, -> mark 2
-            [0.05, 0.00, 0.20],   # mark 2 -> mark 0 a tiny bit, self
+            [0.30, 0.10, 0.00],  # mark 0 -> mark 0, weak -> mark 1, no -> mark 2
+            [0.00, 0.40, 0.15],  # mark 1 -> mark 1 self, -> mark 2
+            [0.05, 0.00, 0.20],  # mark 2 -> mark 0 a tiny bit, self
         ]
     )
     beta_true = np.array(

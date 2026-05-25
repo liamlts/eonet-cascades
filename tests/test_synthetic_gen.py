@@ -39,8 +39,12 @@ def test_branching_increases_count():
         beta=np.array([[1.0]]),
         sigma=np.array([[1.0]]),
     )
-    n_low = simulate_hawkes(p_low, bbox=bbox, t_end=100.0, rng=np.random.default_rng(0))["time"].shape[0]
-    n_high = simulate_hawkes(p_high, bbox=bbox, t_end=100.0, rng=np.random.default_rng(0))["time"].shape[0]
+    n_low = simulate_hawkes(p_low, bbox=bbox, t_end=100.0, rng=np.random.default_rng(0))[
+        "time"
+    ].shape[0]
+    n_high = simulate_hawkes(p_high, bbox=bbox, t_end=100.0, rng=np.random.default_rng(0))[
+        "time"
+    ].shape[0]
     # With branching ratio 0.5, total events expected = N_immigrants / (1 - 0.5) = 2x.
     assert n_high > 1.5 * n_low
 

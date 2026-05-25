@@ -40,9 +40,7 @@ def compute_transition_matrix(
             lats = torch.tensor([cy], dtype=torch.float32, device=device)
             marks = torch.tensor([parent], dtype=torch.long, device=device)
             with torch.no_grad():
-                child = _sample_first_child_mark(
-                    model, times, lons, lats, marks, window_days
-                )
+                child = _sample_first_child_mark(model, times, lons, lats, marks, window_days)
             if child is not None:
                 transitions[parent, child] += 1
     row_sums = transitions.sum(dim=1, keepdim=True).clamp(min=1.0)
@@ -103,13 +101,13 @@ def _lambda_k_at(
     o = torch.zeros(1, hidden_dim, device=device)
     t_last = torch.zeros(1, device=device)
     for i in range(event_times.shape[0]):
-        dt = (event_times[i:i + 1] - t_last).clamp(min=0.0).unsqueeze(-1)
+        dt = (event_times[i : i + 1] - t_last).clamp(min=0.0).unsqueeze(-1)
         h_at_t, _ = model.cell.evolve(c_post, c_bar, delta, o, dt)
         ev_inp = model._event_input(
-            event_lons[i:i + 1], event_lats[i:i + 1], event_marks[i:i + 1]
+            event_lons[i : i + 1], event_lats[i : i + 1], event_marks[i : i + 1]
         )
         _, c_post, c_bar, delta, o = model.cell.update(ev_inp, h_at_t, c_post, c_bar)
-        t_last = event_times[i:i + 1]
+        t_last = event_times[i : i + 1]
     dt = torch.tensor([[t]], device=device) - t_last.unsqueeze(-1)
     h_at_q, _ = model.cell.evolve(c_post, c_bar, delta, o, dt.clamp(min=0.0))
     lam_k = model._lambda_k(h_at_q)  # (1, K)

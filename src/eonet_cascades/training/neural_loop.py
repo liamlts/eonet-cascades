@@ -21,10 +21,10 @@ from eonet_cascades.models.neural_hawkes import NeuralHawkes
 class TrainChunk:
     """One 7-day chunk of events, ready to feed the model."""
 
-    times: torch.Tensor   # (N,) in days since window start
-    lons: torch.Tensor    # (N,)
-    lats: torch.Tensor    # (N,)
-    marks: torch.Tensor   # (N,) int64
+    times: torch.Tensor  # (N,) in days since window start
+    lons: torch.Tensor  # (N,)
+    lats: torch.Tensor  # (N,)
+    marks: torch.Tensor  # (N,) int64
     window: tuple[float, float]  # chunk start / end in same units as times
 
 

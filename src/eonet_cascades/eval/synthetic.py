@@ -53,7 +53,7 @@ def simulate_hawkes(
     pending = list(zip(times, lons, lats, marks, strict=True))
     while pending:
         next_pending = []
-        for (tj, xj, yj, kj) in pending:
+        for tj, xj, yj, kj in pending:
             for k in range(n_marks):
                 a = params.alpha[kj, k]
                 if a <= 0:

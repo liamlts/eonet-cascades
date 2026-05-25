@@ -49,7 +49,9 @@ class NeuralHawkes(nn.Module):
         self.W_lambda_k = nn.Linear(hidden_dim, n_marks)
         self.mdn = MDNHead(input_dim=hidden_dim + mark_emb_dim, n_components=n_mix)
 
-    def _event_input(self, lon: torch.Tensor, lat: torch.Tensor, mark: torch.Tensor) -> torch.Tensor:
+    def _event_input(
+        self, lon: torch.Tensor, lat: torch.Tensor, mark: torch.Tensor
+    ) -> torch.Tensor:
         x = torch.stack([lon, lat], dim=-1)
         return torch.cat([self.mark_emb(mark), self.spatial_emb(x)], dim=-1)
 
@@ -63,7 +65,8 @@ class NeuralHawkes(nn.Module):
         lons: torch.Tensor,
         lats: torch.Tensor,
         marks: torch.Tensor,
-        init_state: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | None = None,
+        init_state: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+        | None = None,
     ) -> dict[str, torch.Tensor]:
         """Process a 1-D event sequence. Returns per-event intensity components.
 
@@ -89,26 +92,24 @@ class NeuralHawkes(nn.Module):
         h_event_list: list[torch.Tensor] = []
 
         for i in range(n):
-            t_i = times[i:i + 1]
+            t_i = times[i : i + 1]
             dt = (t_i - t_last_i).clamp(min=0.0).unsqueeze(-1)
             h_at_t, _ = self.cell.evolve(c_post_i, c_bar_i, delta_i, o_i, dt)
 
-            lam_k = self._lambda_k(h_at_t)                  # (1, n_marks)
+            lam_k = self._lambda_k(h_at_t)  # (1, n_marks)
             log_lam_at_obs = torch.log(lam_k[0, marks[i]])  # scalar
 
-            mark_e = self.mark_emb(marks[i:i + 1])
+            mark_e = self.mark_emb(marks[i : i + 1])
             mdn_input = torch.cat([h_at_t, mark_e], dim=-1)
-            x_i = torch.stack([lons[i:i + 1], lats[i:i + 1]], dim=-1)
+            x_i = torch.stack([lons[i : i + 1], lats[i : i + 1]], dim=-1)
             log_p_x_i = self.mdn.log_prob(mdn_input, x_i)
 
             log_lambda_k_list.append(log_lam_at_obs)
             log_p_x_list.append(log_p_x_i.squeeze())
             h_event_list.append(h_at_t.squeeze(0))
 
-            ev_inp = self._event_input(lons[i:i + 1], lats[i:i + 1], marks[i:i + 1])
-            _, c_post_i, c_bar_i, delta_i, o_i = self.cell.update(
-                ev_inp, h_at_t, c_post_i, c_bar_i
-            )
+            ev_inp = self._event_input(lons[i : i + 1], lats[i : i + 1], marks[i : i + 1])
+            _, c_post_i, c_bar_i, delta_i, o_i = self.cell.update(ev_inp, h_at_t, c_post_i, c_bar_i)
             t_last_i = t_i
 
         return {
@@ -169,16 +170,16 @@ class NeuralHawkes(nn.Module):
         n_events = event_times.shape[0]
         for q in qt_sorted:
             while ei < n_events and event_times[ei] <= q:
-                dt = (event_times[ei:ei + 1] - t_last).clamp(min=0.0).unsqueeze(-1)
+                dt = (event_times[ei : ei + 1] - t_last).clamp(min=0.0).unsqueeze(-1)
                 h_at_t, _ = self.cell.evolve(c_post, c_bar, delta, o, dt)
                 ev_inp = self._event_input(
-                    event_lons[ei:ei + 1], event_lats[ei:ei + 1], event_marks[ei:ei + 1]
+                    event_lons[ei : ei + 1], event_lats[ei : ei + 1], event_marks[ei : ei + 1]
                 )
                 _, c_post, c_bar, delta, o = self.cell.update(ev_inp, h_at_t, c_post, c_bar)
-                t_last = event_times[ei:ei + 1]
+                t_last = event_times[ei : ei + 1]
                 ei += 1
             dt = (q.unsqueeze(0) - t_last).clamp(min=0.0).unsqueeze(-1)
             h_at_q, _ = self.cell.evolve(c_post, c_bar, delta, o, dt)
-            lam_k = self._lambda_k(h_at_q)               # (1, n_marks)
+            lam_k = self._lambda_k(h_at_q)  # (1, n_marks)
             out_vals.append(lam_k.sum(dim=-1).squeeze())
         return torch.stack(out_vals)

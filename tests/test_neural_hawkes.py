@@ -32,4 +32,6 @@ def test_forward_history_grows_with_index():
     out_full = model.forward(times, lons, lats, marks)
     # If we trim to first 2 events, the first 2 outputs should match (causality).
     out_trim = model.forward(times[:2], lons[:2], lats[:2], marks[:2])
-    assert torch.allclose(out_full["log_lambda_k_at_event"][:2], out_trim["log_lambda_k_at_event"], atol=1e-5)
+    assert torch.allclose(
+        out_full["log_lambda_k_at_event"][:2], out_trim["log_lambda_k_at_event"], atol=1e-5
+    )

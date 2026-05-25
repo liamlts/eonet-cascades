@@ -119,9 +119,7 @@ def test_kde_baseline_integrates_to_one_per_mark():
     import polars as pl
 
     df = pl.DataFrame(events_df)
-    baseline = KDESpatialBaseline.from_events(
-        df, mark_names=["a", "b"], bbox=bbox, grid_step=1.0
-    )
+    baseline = KDESpatialBaseline.from_events(df, mark_names=["a", "b"], bbox=bbox, grid_step=1.0)
     # Integral check: sum over a fine grid times cell area should be ~1.
     fine_lon = np.linspace(-10, 10, 41)
     fine_lat = np.linspace(-10, 10, 41)

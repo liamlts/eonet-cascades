@@ -49,7 +49,9 @@ class Event(BaseModel):
     @model_validator(mode="after")
     def _validate(self) -> Event:
         if ":" not in self.event_id:
-            raise ValueError(f"event_id must be '{{catalog}}:{{native_id}}', got: {self.event_id!r}")
+            raise ValueError(
+                f"event_id must be '{{catalog}}:{{native_id}}', got: {self.event_id!r}"
+            )
         if self.time_start.tzinfo is None:
             raise ValueError("time_start must be timezone-aware (UTC)")
         if self.time_end is not None:

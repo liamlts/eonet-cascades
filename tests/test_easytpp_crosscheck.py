@@ -51,9 +51,7 @@ def test_easytpp_nll_within_2pct():
     bbox = (-10.0, -10.0, 10.0, 10.0)
     truth = HawkesParams(
         mu=np.array([0.5, 0.3, 0.2]),
-        alpha=np.array(
-            [[0.30, 0.10, 0.00], [0.00, 0.40, 0.15], [0.05, 0.00, 0.20]]
-        ),
+        alpha=np.array([[0.30, 0.10, 0.00], [0.00, 0.40, 0.15], [0.05, 0.00, 0.20]]),
         beta=np.full((n_marks, n_marks), 1.0),
         sigma=np.full((n_marks, n_marks), 1.0),
     )
@@ -68,18 +66,19 @@ def test_easytpp_nll_within_2pct():
     )
 
     # 1. Train OUR model.
-    model = NeuralHawkes(
-        n_marks=n_marks, hidden_dim=32, mark_emb_dim=8, spatial_emb_dim=8, n_mix=4
-    )
+    model = NeuralHawkes(n_marks=n_marks, hidden_dim=32, mark_emb_dim=8, spatial_emb_dim=8, n_mix=4)
     optimizer = AdamW(model.parameters(), lr=1e-2)
     for _ in range(30):
         train_one_epoch(model, [chunk], optimizer)
     with torch.no_grad():
-        our_nll = float(
-            -model.log_likelihood(
-                chunk.times, chunk.lons, chunk.lats, chunk.marks, chunk.window
-            ).item()
-        ) / chunk.times.shape[0]
+        our_nll = (
+            float(
+                -model.log_likelihood(
+                    chunk.times, chunk.lons, chunk.lats, chunk.marks, chunk.window
+                ).item()
+            )
+            / chunk.times.shape[0]
+        )
     print(f"Our NLL/event: {our_nll:.4f}")
 
     if have_ref is None:

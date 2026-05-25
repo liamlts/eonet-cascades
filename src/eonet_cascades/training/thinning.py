@@ -57,9 +57,7 @@ def thinning_sample_temporal(
             break
         lam = intensity_fn(t, events)
         if lam > lam_bar + 1e-12:
-            raise ValueError(
-                f"upper bound {lam_bar} smaller than true intensity {lam} at t={t}"
-            )
+            raise ValueError(f"upper bound {lam_bar} smaller than true intensity {lam} at t={t}")
         u = rng.uniform()
         if u * lam_bar <= lam:
             events.append(t)

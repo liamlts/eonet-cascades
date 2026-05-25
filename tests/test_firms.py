@@ -40,7 +40,10 @@ def test_harmonize_low_confidence_dropped():
 @respx.mock
 def test_fetch_passes_api_key_and_bbox():
     route = respx.get(url__regex=r"https://firms\.modaps\.eosdis\.nasa\.gov/api/area/csv/.*").mock(
-        return_value=httpx.Response(200, text="latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight\n")
+        return_value=httpx.Response(
+            200,
+            text="latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight\n",
+        )
     )
     fetcher = FIRMSFetcher(api_key="MAP_KEY_123", rate_per_sec=100.0)
     list(
