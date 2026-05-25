@@ -28,7 +28,7 @@ dev = [
     "ipykernel>=6",
 ]
 ml = [
-    "torch>=2.2",
+    "torch>=2.2,<2.3",
     "matplotlib>=3.8",
     "scienceplots>=2",
     "cartopy>=0.23",
