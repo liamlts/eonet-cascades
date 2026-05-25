@@ -214,7 +214,10 @@ def model_train_neural_hawkes(
         df_train = df_train.sample(sample, seed=seed)
         console.print(f"Subsampled train to {df_train.height:,}")
 
-    mark_names = sorted(df_train["mark"].unique().to_list())
+    mark_names = sorted(
+        set(df_train["mark"].unique().to_list())
+        | set(df_val["mark"].unique().to_list())
+    )
     n_marks = len(mark_names)
     mark_to_idx = {m: i for i, m in enumerate(mark_names)}
     console.print(f"K = {n_marks} marks: {mark_names}")
