@@ -88,6 +88,7 @@ def model_train_hawkes(
         typer.Option(help="Output dir; default runs/tier0/{timestamp}"),
     ] = None,
     max_iter: Annotated[int, typer.Option(help="L-BFGS-B max iterations")] = 300,
+    l1_lambda: Annotated[float, typer.Option(help="L1 regularization on alpha (0 = none)")] = 0.0,
 ) -> None:
     """Fit Tier 0 parametric Hawkes on a windowed subsample of the event archive."""
     import numpy as np
@@ -130,7 +131,7 @@ def model_train_hawkes(
         "mark": np.array([mark_to_idx[m] for m in df["mark"].to_list()], dtype=np.int64),
     }
     t_end_days = (until_dt - since_dt).total_seconds() / 86_400.0
-    result = model.fit(events_dict, (0.0, t_end_days), max_iter=max_iter)
+    result = model.fit(events_dict, (0.0, t_end_days), max_iter=max_iter, l1_lambda=l1_lambda)
     console.print(result)
 
     out = out_dir or (
