@@ -101,3 +101,34 @@ def test_intensity_at_future_event_only_uses_past():
     lam = conditional_intensity(p, t, x, history, _trivial_pi, bbox)
     expected = 1.0 * 1.0 * math.exp(-1.0 * 2.0) / (2 * math.pi * 1.0)
     assert math.isclose(lam[0], expected, rel_tol=1e-6)
+
+
+def test_kde_baseline_integrates_to_one_per_mark():
+    from eonet_cascades.models.hawkes import KDESpatialBaseline
+
+    bbox = (-10.0, -10.0, 10.0, 10.0)
+    rng = np.random.default_rng(0)
+    # Mark 0 events cluster around (-5, -5); mark 1 events around (5, 5).
+    n = 500
+    events_df = {
+        "time_start": np.array([np.datetime64("2024-01-01")] * (2 * n)),
+        "longitude": np.concatenate([rng.normal(-5, 1, n), rng.normal(5, 1, n)]),
+        "latitude": np.concatenate([rng.normal(-5, 1, n), rng.normal(5, 1, n)]),
+        "mark": np.array(["a"] * n + ["b"] * n),
+    }
+    import polars as pl
+
+    df = pl.DataFrame(events_df)
+    baseline = KDESpatialBaseline.from_events(
+        df, mark_names=["a", "b"], bbox=bbox, grid_step=1.0
+    )
+    # Integral check: sum over a fine grid times cell area should be ~1.
+    fine_lon = np.linspace(-10, 10, 41)
+    fine_lat = np.linspace(-10, 10, 41)
+    LL, AA = np.meshgrid(fine_lon, fine_lat)  # noqa: N806
+    pts = np.column_stack([LL.ravel(), AA.ravel()])
+    for k in (0, 1):
+        vals = baseline(k, pts, bbox)
+        # cell width 0.5 deg, so cell area = 0.25 deg^2
+        integral = float(vals.sum() * 0.25)
+        assert 0.7 < integral < 1.3, f"mark {k} integral {integral} not near 1"

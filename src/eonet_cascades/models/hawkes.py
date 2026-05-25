@@ -301,3 +301,76 @@ def _df_to_event_dict(df: pl.DataFrame) -> dict[str, np.ndarray]:
         "lat": df["latitude"].to_numpy().astype(np.float64),
         "mark": mark_idx,
     }
+
+
+from scipy.ndimage import gaussian_filter  # noqa: E402
+
+
+@dataclass
+class KDESpatialBaseline:
+    """Per-mark spatial baseline density estimated from an empirical event distribution.
+
+    Stores a (K, n_lat, n_lon) grid of normalized densities. Calling the instance
+    with (mark_index, points (N, 2), bbox) returns density values at those points
+    via nearest-grid lookup.
+    """
+
+    densities: np.ndarray   # shape (n_marks, n_lat, n_lon)
+    bbox: tuple[float, float, float, float]
+    grid_step: float
+    mark_names: list[str]
+
+    @classmethod
+    def from_events(
+        cls,
+        events_df,
+        mark_names: list[str],
+        bbox: tuple[float, float, float, float],
+        grid_step: float = 1.0,
+        smooth_sigma: float = 1.5,
+    ) -> KDESpatialBaseline:
+        min_lon, min_lat, max_lon, max_lat = bbox
+        n_lon = round((max_lon - min_lon) / grid_step)
+        n_lat = round((max_lat - min_lat) / grid_step)
+        n_marks = len(mark_names)
+        densities = np.zeros((n_marks, n_lat, n_lon), dtype=np.float64)
+        # Accept either polars or dict input.
+        if isinstance(events_df, pl.DataFrame):
+            lon = events_df["longitude"].to_numpy().astype(np.float64)
+            lat = events_df["latitude"].to_numpy().astype(np.float64)
+            marks = events_df["mark"].to_list()
+        else:
+            lon = np.asarray(events_df["longitude"], dtype=np.float64)
+            lat = np.asarray(events_df["latitude"], dtype=np.float64)
+            marks = list(events_df["mark"])
+        for i, name in enumerate(mark_names):
+            mask = np.array([m == name for m in marks])
+            if not mask.any():
+                # Uniform fallback so density is non-zero everywhere.
+                densities[i] = 1.0
+            else:
+                lons_k = lon[mask]
+                lats_k = lat[mask]
+                hist, _, _ = np.histogram2d(
+                    lats_k, lons_k,
+                    bins=[n_lat, n_lon],
+                    range=[[min_lat, max_lat], [min_lon, max_lon]],
+                )
+                densities[i] = gaussian_filter(hist, sigma=smooth_sigma) + 1e-6  # floor for log
+            # Normalize so cell-area integral = 1.
+            cell_area = grid_step * grid_step
+            densities[i] /= densities[i].sum() * cell_area
+        return cls(densities=densities, bbox=bbox, grid_step=grid_step, mark_names=mark_names)
+
+    def __call__(
+        self,
+        k: int,
+        x: np.ndarray,
+        bbox: tuple[float, float, float, float],
+    ) -> np.ndarray:
+        min_lon, _min_lat, _max_lon, _max_lat = self.bbox
+        min_lat = self.bbox[1]
+        n_lat, n_lon = self.densities.shape[1], self.densities.shape[2]
+        lon_idx = np.clip(((x[:, 0] - min_lon) / self.grid_step).astype(int), 0, n_lon - 1)
+        lat_idx = np.clip(((x[:, 1] - min_lat) / self.grid_step).astype(int), 0, n_lat - 1)
+        return self.densities[k, lat_idx, lon_idx]
