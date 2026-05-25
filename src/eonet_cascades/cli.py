@@ -94,10 +94,16 @@ def model_train_hawkes(
     cfg = load_data_config(config) if config else DataConfig()
     since_dt = datetime.fromisoformat(since).replace(tzinfo=UTC)
     until_dt = datetime.fromisoformat(until).replace(tzinfo=UTC)
-    # Read-only — train-hawkes never writes, and this lets us coexist with a
-    # running notebook kernel that holds the write lock.
-    store = EventStore(cfg.duckdb_path, read_only=True)
-    store.init_schema()  # no-op in read-only mode
+    # Snapshot the DB to /tmp so we coexist with anything that holds the
+    # write lock (e.g. an interactive notebook kernel). DuckDB read-only
+    # mode is not enough — it still conflicts with an outstanding RW lock.
+    import shutil
+    import tempfile
+    snapshot_dir = Path(tempfile.mkdtemp(prefix="eonet_tier0_"))
+    snapshot_path = snapshot_dir / "events.duckdb"
+    console.print(f"Snapshotting DB to {snapshot_path}...")
+    shutil.copy2(cfg.duckdb_path, snapshot_path)
+    store = EventStore(snapshot_path, read_only=True)
     df = store.query_events(time_start=since_dt, time_end=until_dt)
     console.print(f"Loaded {df.height:,} events in window [{since}, {until})")
     if df.height > sample:
