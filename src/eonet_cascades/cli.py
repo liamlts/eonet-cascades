@@ -97,10 +97,12 @@ def model_train_hawkes(
     # Snapshot the DB to /tmp so we coexist with anything that holds the
     # write lock (e.g. an interactive notebook kernel). DuckDB read-only
     # mode is not enough — it still conflicts with an outstanding RW lock.
+    import atexit
     import shutil
     import tempfile
 
     snapshot_dir = Path(tempfile.mkdtemp(prefix="eonet_tier0_"))
+    atexit.register(shutil.rmtree, snapshot_dir, ignore_errors=True)
     snapshot_path = snapshot_dir / "events.duckdb"
     console.print(f"Snapshotting DB to {snapshot_path}...")
     shutil.copy2(cfg.duckdb_path, snapshot_path)
@@ -178,6 +180,7 @@ def model_train_neural_hawkes(
     ] = None,
 ) -> None:
     """Train Tier 1 Neural Hawkes on a windowed sample of the event archive."""
+    import atexit
     import shutil
     import tempfile
     import time
@@ -196,6 +199,7 @@ def model_train_neural_hawkes(
     val_until_dt = datetime.fromisoformat(val_until).replace(tzinfo=UTC)
 
     snapshot_dir = Path(tempfile.mkdtemp(prefix="eonet_tier1_"))
+    atexit.register(shutil.rmtree, snapshot_dir, ignore_errors=True)
     snapshot_path = snapshot_dir / "events.duckdb"
     console.print(f"Snapshotting DB to {snapshot_path}...")
     shutil.copy2(cfg.duckdb_path, snapshot_path)
