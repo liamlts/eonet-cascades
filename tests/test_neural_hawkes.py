@@ -15,10 +15,9 @@ def test_forward_shapes():
     lats = torch.linspace(0.0, 5.0, 7)
     marks = torch.tensor([0, 1, 2, 0, 3, 1, 2])
     out = model.forward(times, lons, lats, marks)
-    # Output should contain per-event log lambda_t, mark log-prob at observed mark,
-    # and spatial log prob at the event location (each shape (n_events,)).
-    assert out["log_lambda_t"].shape == (7,)
-    assert out["log_p_mark"].shape == (7,)
+    # Output should contain per-event log lambda_{k_i} and spatial log prob
+    # at the event location (each shape (n_events,)).
+    assert out["log_lambda_k_at_event"].shape == (7,)
     assert out["log_p_x"].shape == (7,)
 
 
@@ -33,5 +32,4 @@ def test_forward_history_grows_with_index():
     out_full = model.forward(times, lons, lats, marks)
     # If we trim to first 2 events, the first 2 outputs should match (causality).
     out_trim = model.forward(times[:2], lons[:2], lats[:2], marks[:2])
-    assert torch.allclose(out_full["log_lambda_t"][:2], out_trim["log_lambda_t"], atol=1e-5)
-    assert torch.allclose(out_full["log_p_mark"][:2], out_trim["log_p_mark"], atol=1e-5)
+    assert torch.allclose(out_full["log_lambda_k_at_event"][:2], out_trim["log_lambda_k_at_event"], atol=1e-5)

@@ -1,6 +1,17 @@
 """Tier 1 — Neural Hawkes (CTLSTM + MDN) model.
 
-Per spec docs/superpowers/specs/2026-05-25-tier-1-neural-hawkes-design.md §3.
+Architecture: continuous-time LSTM hidden state h(t), per-mark temporal
+intensity heads lambda_k(t|h), shared full-covariance bivariate MDN spatial
+head conditioned on (h, mark_emb).
+
+Per-mark intensity decomposition (multivariate Hawkes form):
+    lambda_k(t, x | h(t)) = softplus(W_lambda_k . h(t)) * p(x | h, k)
+
+So the per-event log-likelihood contribution at (t_i, x_i, k_i) is:
+    log lambda_{k_i}(t_i | h(t_i)) + log p(x_i | h(t_i), k_i)
+
+The total intensity integrated over time (for the NLL integral) is:
+    integral over [t_start, t_end] of sum_k lambda_k(t | h(t)) dt
 """
 
 from __future__ import annotations
@@ -15,12 +26,6 @@ from eonet_cascades.models.components.mdn_head import MDNHead
 
 
 class NeuralHawkes(nn.Module):
-    """Spatio-temporal marked Neural Hawkes.
-
-    Intensity decomposition (spec §3.2):
-        lambda(t, x, k | h(t)) = lambda_t(t | h) * p(k | h, t) * p(x | h, t, k)
-    """
-
     name = "neural_hawkes_tier1"
 
     def __init__(
@@ -39,13 +44,18 @@ class NeuralHawkes(nn.Module):
         self.spatial_emb = SpatialEmbedding(dim=spatial_emb_dim)
         input_dim = mark_emb_dim + spatial_emb_dim
         self.cell = CTLSTMCell(input_dim=input_dim, hidden_dim=hidden_dim)
-        self.W_lambda_t = nn.Linear(hidden_dim, 1)
-        self.W_mark = nn.Linear(hidden_dim, n_marks)
+        # Per-mark temporal intensity head — replaces the old W_lambda_t (scalar)
+        # and W_mark (softmax) pair.
+        self.W_lambda_k = nn.Linear(hidden_dim, n_marks)
         self.mdn = MDNHead(input_dim=hidden_dim + mark_emb_dim, n_components=n_mix)
 
     def _event_input(self, lon: torch.Tensor, lat: torch.Tensor, mark: torch.Tensor) -> torch.Tensor:
         x = torch.stack([lon, lat], dim=-1)
         return torch.cat([self.mark_emb(mark), self.spatial_emb(x)], dim=-1)
+
+    def _lambda_k(self, h: torch.Tensor) -> torch.Tensor:
+        """Per-mark intensities at hidden state h. Returns shape (..., n_marks)."""
+        return nnf.softplus(self.W_lambda_k(h)).clamp_min(1e-12)
 
     def forward(
         self,
@@ -58,10 +68,9 @@ class NeuralHawkes(nn.Module):
         """Process a 1-D event sequence. Returns per-event intensity components.
 
         Returns dict with:
-            log_lambda_t : (N,) log temporal intensity at event times
-            log_p_mark   : (N,) log p(k_i | h(t_i))
-            log_p_x      : (N,) log p(x_i | h(t_i), k_i)
-            h_at_events  : (N, hidden_dim) hidden state queried at event times
+            log_lambda_k_at_event : (N,) log lambda_{k_i}(t_i | h(t_i))
+            log_p_x               : (N,) log p(x_i | h, k_i)
+            h_at_events           : (N, hidden_dim) hidden state at event times
         """
         n = times.shape[0]
         device = times.device
@@ -75,32 +84,27 @@ class NeuralHawkes(nn.Module):
         else:
             c_post_i, c_bar_i, delta_i, o_i, t_last_i = init_state
 
-        log_lambda_t_list: list[torch.Tensor] = []
-        log_p_mark_list: list[torch.Tensor] = []
+        log_lambda_k_list: list[torch.Tensor] = []
         log_p_x_list: list[torch.Tensor] = []
         h_event_list: list[torch.Tensor] = []
 
         for i in range(n):
             t_i = times[i:i + 1]
-            dt = (t_i - t_last_i).clamp(min=0.0).unsqueeze(-1)  # (1, 1)
-            # Hidden state at the event time (just BEFORE the event update).
+            dt = (t_i - t_last_i).clamp(min=0.0).unsqueeze(-1)
             h_at_t, _ = self.cell.evolve(c_post_i, c_bar_i, delta_i, o_i, dt)
-            # Intensity components computed from h(t_i) before the event update.
-            log_lambda_t = nnf.softplus(self.W_lambda_t(h_at_t)).clamp_min(1e-12).log()
-            mark_logits = nnf.log_softmax(self.W_mark(h_at_t), dim=-1)
-            log_p_mark_i = mark_logits[0, marks[i]]
-            # MDN spatial: conditioned on (h(t_i), mark_emb[k_i]).
+
+            lam_k = self._lambda_k(h_at_t)                  # (1, n_marks)
+            log_lam_at_obs = torch.log(lam_k[0, marks[i]])  # scalar
+
             mark_e = self.mark_emb(marks[i:i + 1])
             mdn_input = torch.cat([h_at_t, mark_e], dim=-1)
             x_i = torch.stack([lons[i:i + 1], lats[i:i + 1]], dim=-1)
             log_p_x_i = self.mdn.log_prob(mdn_input, x_i)
 
-            log_lambda_t_list.append(log_lambda_t.squeeze())
-            log_p_mark_list.append(log_p_mark_i)
+            log_lambda_k_list.append(log_lam_at_obs)
             log_p_x_list.append(log_p_x_i.squeeze())
             h_event_list.append(h_at_t.squeeze(0))
 
-            # Event update: incorporate (mark, location) into the CTLSTM state.
             ev_inp = self._event_input(lons[i:i + 1], lats[i:i + 1], marks[i:i + 1])
             _, c_post_i, c_bar_i, delta_i, o_i = self.cell.update(
                 ev_inp, h_at_t, c_post_i, c_bar_i
@@ -108,8 +112,7 @@ class NeuralHawkes(nn.Module):
             t_last_i = t_i
 
         return {
-            "log_lambda_t": torch.stack(log_lambda_t_list),
-            "log_p_mark": torch.stack(log_p_mark_list),
+            "log_lambda_k_at_event": torch.stack(log_lambda_k_list),
             "log_p_x": torch.stack(log_p_x_list),
             "h_at_events": torch.stack(h_event_list),
         }
@@ -123,18 +126,16 @@ class NeuralHawkes(nn.Module):
         window: tuple[float, float],
         n_mc_samples: int = 20,
     ) -> torch.Tensor:
-        """Compute log L over a single 1-D event sequence in [t_start, t_end].
+        """Compute log L over a single event sequence in window.
 
-        Returns a scalar tensor that supports backprop.
+        log L = sum_i (log lambda_{k_i}(t_i | h) + log p(x_i | h, k_i))
+              - integral over [t_start, t_end] of sum_k lambda_k(t | h(t)) dt
         """
         t_start, t_end = window
         out = self.forward(times, lons, lats, marks)
-        # Per-event log contribution.
-        per_event = out["log_lambda_t"] + out["log_p_mark"] + out["log_p_x"]
+        per_event = out["log_lambda_k_at_event"] + out["log_p_x"]
         sum_per_event = per_event.sum()
 
-        # Approximate integral of lambda_t over [t_start, t_end] via Monte Carlo
-        # using the model's own hidden state at sample times.
         device = times.device
         gen = torch.Generator(device="cpu")
         gen.manual_seed(0)
@@ -142,11 +143,11 @@ class NeuralHawkes(nn.Module):
             torch.rand(n_mc_samples, generator=gen) * (t_end - t_start) + t_start
         )
         sample_times = sample_times.to(device)
-        lam_at_samples = self._lambda_t_at(times, lons, lats, marks, sample_times)
-        integral = lam_at_samples.mean() * (t_end - t_start)
+        lam_total_at_samples = self._lambda_total_at(times, lons, lats, marks, sample_times)
+        integral = lam_total_at_samples.mean() * (t_end - t_start)
         return sum_per_event - integral
 
-    def _lambda_t_at(
+    def _lambda_total_at(
         self,
         event_times: torch.Tensor,
         event_lons: torch.Tensor,
@@ -154,9 +155,7 @@ class NeuralHawkes(nn.Module):
         event_marks: torch.Tensor,
         query_times: torch.Tensor,
     ) -> torch.Tensor:
-        """Evaluate lambda_t at arbitrary query_times given an event history."""
-        import torch.nn.functional as nnf  # local import keeps top-of-file clean
-
+        """Evaluate sum_k lambda_k at arbitrary query_times given event history."""
         device = event_times.device
         hidden_dim = self.hidden_dim
         c_post = torch.zeros(1, hidden_dim, device=device)
@@ -169,7 +168,6 @@ class NeuralHawkes(nn.Module):
         ei = 0
         n_events = event_times.shape[0]
         for q in qt_sorted:
-            # Advance the cell state up to (but not past) q by processing events <= q.
             while ei < n_events and event_times[ei] <= q:
                 dt = (event_times[ei:ei + 1] - t_last).clamp(min=0.0).unsqueeze(-1)
                 h_at_t, _ = self.cell.evolve(c_post, c_bar, delta, o, dt)
@@ -181,6 +179,6 @@ class NeuralHawkes(nn.Module):
                 ei += 1
             dt = (q.unsqueeze(0) - t_last).clamp(min=0.0).unsqueeze(-1)
             h_at_q, _ = self.cell.evolve(c_post, c_bar, delta, o, dt)
-            lam = nnf.softplus(self.W_lambda_t(h_at_q)).clamp_min(1e-12)
-            out_vals.append(lam.squeeze())
+            lam_k = self._lambda_k(h_at_q)               # (1, n_marks)
+            out_vals.append(lam_k.sum(dim=-1).squeeze())
         return torch.stack(out_vals)
