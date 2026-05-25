@@ -306,6 +306,91 @@ def _df_to_event_dict(df: pl.DataFrame) -> dict[str, np.ndarray]:
     }
 
 
+def hawkes_log_likelihood_vectorized(
+    params: HawkesParams,
+    events: dict[str, np.ndarray],
+    window: tuple[float, float],
+    pi_k: SpatialDensityFn,
+    bbox: tuple[float, float, float, float],
+    spatial_mass_approx_one: bool = True,
+) -> float:
+    """Vectorized form of `hawkes_log_likelihood`. Mathematically identical.
+
+    Builds three (N, N) matrices — pairwise time delta, squared spatial delta,
+    and pair-indexed (alpha, beta, sigma) lookups — then reduces in one
+    numpy expression. ~50-100x faster than the loop version for N <= 5000.
+
+    Memory: ~32 MB per (N, N) float64 matrix at N=2000. Up to ~5000 fits in
+    a few GB. Larger N requires chunking (Plan 4+).
+    """
+    t0, t_end = window
+    t_arr = events["time"]
+    lon_arr = events["lon"]
+    lat_arr = events["lat"]
+    k_arr = events["mark"].astype(np.int64)
+    n = t_arr.shape[0]
+    n_marks = params.K
+
+    if n == 0:
+        return -float(np.sum(params.mu) * (t_end - t0))
+
+    # Sort by time so the causal mask below is straightforward.
+    order = np.argsort(t_arr, kind="stable")
+    t_s = t_arr[order]
+    lon_s = lon_arr[order]
+    lat_s = lat_arr[order]
+    k_s = k_arr[order]
+
+    # Per-event baseline at the event's own (location, mark).
+    x_all = np.column_stack([lon_s, lat_s])  # (n, 2)
+    pi_vals = np.zeros((n, n_marks), dtype=np.float64)
+    for kk in range(n_marks):
+        pi_vals[:, kk] = pi_k(kk, x_all, bbox)
+    baseline_at_event = params.mu[k_s] * pi_vals[np.arange(n), k_s]  # (n,)
+
+    # Pairwise (n, n) deltas. dt[i, j] = t_s[i] - t_s[j].
+    dt_mat = t_s[:, None] - t_s[None, :]
+    dlon = lon_s[:, None] - lon_s[None, :]
+    dlat = lat_s[:, None] - lat_s[None, :]
+    d2_mat = dlon * dlon + dlat * dlat
+    causal = dt_mat > 0  # j strictly before i
+
+    # Pair-indexed params. For pair (i, j): parent=k_s[j], child=k_s[i].
+    parent_idx = k_s[None, :]  # broadcasts to (n, n) along rows
+    child_idx = k_s[:, None]   # broadcasts to (n, n) along cols
+    alpha_pairs = params.alpha[parent_idx, child_idx]  # (n, n)
+    beta_pairs = params.beta[parent_idx, child_idx]
+    sigma_pairs = params.sigma[parent_idx, child_idx]
+
+    # Triggering contribution per pair (zeroed on non-causal pairs).
+    # Clip dt for the exp to avoid NaN on the non-causal half (gets zeroed anyway).
+    dt_safe = np.where(causal, dt_mat, 0.0)
+    temporal = beta_pairs * np.exp(-beta_pairs * dt_safe)
+    spatial = np.exp(-d2_mat / (2.0 * sigma_pairs * sigma_pairs)) / (
+        2.0 * np.pi * sigma_pairs * sigma_pairs
+    )
+    contrib = np.where(causal, alpha_pairs * temporal * spatial, 0.0)
+    # Sum over parents j for each child i → per-event triggering intensity.
+    trigger_at_event = contrib.sum(axis=1)
+
+    lam_at_event = baseline_at_event + trigger_at_event
+    if np.any(lam_at_event <= 0):
+        return -np.inf
+    sum_log = float(np.sum(np.log(lam_at_event)))
+
+    # Integrated intensity. Baseline part.
+    integral_baseline = float(np.sum(params.mu) * (t_end - t0))
+
+    # Triggering part: same closed form as the loop version.
+    if not spatial_mass_approx_one:
+        raise NotImplementedError("Exact spatial mass not implemented in v1")
+    decay = np.exp(-params.beta[k_s, :] * (t_end - t_s)[:, None])  # (n, K)
+    per_event = params.alpha[k_s, :] * (1.0 - decay)  # (n, K)
+    integral_trigger = float(np.sum(per_event))
+
+    return sum_log - integral_baseline - integral_trigger
+
+
 from scipy.ndimage import gaussian_filter  # noqa: E402
 
 

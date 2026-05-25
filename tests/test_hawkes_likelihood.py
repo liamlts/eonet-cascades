@@ -85,3 +85,34 @@ def test_likelihood_monotone_in_event_count_baseline():
     # With alpha=0 and high event count, the per-event log terms are log(small density)
     # which are very negative -- the more events, the lower the total LL at fixed mu.
     assert ll10 > ll100
+
+
+def test_vectorized_matches_loop_on_small_synthetic():
+    """Both formulations must agree to ~1e-7 on identical inputs."""
+    import numpy as np
+
+    from eonet_cascades.eval.synthetic import simulate_hawkes
+    from eonet_cascades.models.hawkes import (
+        HawkesParams,
+        hawkes_log_likelihood,
+        hawkes_log_likelihood_vectorized,
+    )
+
+    rng = np.random.default_rng(7)
+    n_marks = 3
+    p = HawkesParams(
+        mu=np.array([0.4, 0.3, 0.2]),
+        alpha=np.array([[0.25, 0.05, 0.0], [0.0, 0.30, 0.10], [0.05, 0.0, 0.20]]),
+        beta=np.full((n_marks, n_marks), 1.0),
+        sigma=np.full((n_marks, n_marks), 1.0),
+    )
+    bbox = (-10.0, -10.0, 10.0, 10.0)
+    events = simulate_hawkes(p, bbox=bbox, t_end=80.0, rng=rng)
+
+    def _uniform_pi(k, x, b):
+        ml, mlat, max_lon, max_lat = b
+        return np.full(x.shape[0], 1.0 / ((max_lon - ml) * (max_lat - mlat)))
+
+    ll_loop = hawkes_log_likelihood(p, events, (0.0, 80.0), _uniform_pi, bbox)
+    ll_vec = hawkes_log_likelihood_vectorized(p, events, (0.0, 80.0), _uniform_pi, bbox)
+    assert abs(ll_loop - ll_vec) < 1e-7, f"loop {ll_loop} vs vectorized {ll_vec}"
