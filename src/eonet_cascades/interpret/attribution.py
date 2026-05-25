@@ -73,20 +73,28 @@ def compute_attribution_matrix(
         _, c_post, c_bar, delta, o = model.cell.update(ev_inp, h_at_t, c_post, c_bar)
         t_last = t_i
 
+    # Vectorize: one backward pass per child i with inputs=h_list[:i] returns all i
+    # grads in a single graph traversal. Old per-(i,j) call pattern was O(n^3) wall.
+    # Skip prior h's that don't require grad (e.g. h_list[0] is computed from constant
+    # zero-state) so torch.autograd.grad doesn't error.
+    marks_py = marks.tolist()
+    times_cpu = times.detach().cpu()
     for i in range(1, n):
-        child = int(marks[i])
-        for j in range(i):
-            if not h_list[j].requires_grad:
+        valid_js = [j for j in range(i) if h_list[j].requires_grad]
+        if not valid_js:
+            continue
+        inputs = [h_list[j] for j in valid_js]
+        grads = torch.autograd.grad(
+            per_event_list[i], inputs, retain_graph=True, allow_unused=True
+        )
+        dts = (times_cpu[i] - times_cpu[:i]).clamp(min=0.0)
+        decays = torch.exp(-dts / tau_days).tolist()
+        child = marks_py[i]
+        for k, g in enumerate(grads):
+            if g is None:
                 continue
-            grads = torch.autograd.grad(
-                per_event_list[i], h_list[j], retain_graph=True, allow_unused=True
-            )[0]
-            if grads is None:
-                continue
-            grad_norm = float(grads.abs().sum().item())
-            dt = float((times[i] - times[j]).clamp(min=0.0).item())
-            decay = float(torch.exp(torch.tensor(-dt / tau_days)).item())
-            parent = int(marks[j])
-            a_matrix[parent, child] += grad_norm * decay
+            j = valid_js[k]
+            grad_norm = float(g.abs().sum().item())
+            a_matrix[marks_py[j], child] += grad_norm * decays[j]
 
     return a_matrix
