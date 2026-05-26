@@ -219,6 +219,17 @@ def model_train_neural_hawkes(
             )
         ),
     ] = 0.01,
+    mark_head: Annotated[
+        str,
+        typer.Option(
+            help=(
+                "Mark-intensity head architecture. 'linear' is the original Tier 1 "
+                "single nn.Linear head. 'mlp' is a 2-layer ReLU MLP "
+                "(H -> H//2 -> n_marks) added 2026-05-26 to test whether non-linear "
+                "capacity breaks the rank-1 collapse documented in tier1_5-result.md."
+            )
+        ),
+    ] = "linear",
 ) -> None:
     """Train Tier 1 Neural Hawkes on a windowed sample of the event archive."""
     import atexit
@@ -315,7 +326,9 @@ def model_train_neural_hawkes(
     val_chunks = chunked(df_val, until_dt)
     console.print(f"Built {len(train_chunks)} train chunks, {len(val_chunks)} val chunks")
 
-    model = NeuralHawkes(n_marks=n_marks, hidden_dim=hidden_dim).to(device)
+    model = NeuralHawkes(
+        n_marks=n_marks, hidden_dim=hidden_dim, mark_head=mark_head
+    ).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs * max(1, len(train_chunks)))
 
@@ -357,6 +370,7 @@ def model_train_neural_hawkes(
                 "until": until,
                 "val_until": val_until,
                 "hidden_dim": hidden_dim,
+                "mark_head": mark_head,
                 "n_marks": n_marks,
             },
         },
