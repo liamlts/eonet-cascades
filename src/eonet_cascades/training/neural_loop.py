@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from torch import nn
 from torch.optim import AdamW
@@ -28,6 +29,36 @@ class TrainChunk:
     window: tuple[float, float]  # chunk start / end in same units as times
 
 
+def mark_rebalance_weights(
+    marks_idx: np.ndarray, n_marks: int, mode: str = "inverse-sqrt"
+) -> torch.Tensor:
+    """Compute per-mark loss weights for class-rebalanced training.
+
+    Returns a (K,) tensor normalized so mean weight = 1. Counts of 0 are
+    floored to 1 to avoid division-by-zero (the mark gets the floor weight;
+    it has no training signal anyway).
+
+    Modes:
+        "inverse-sqrt"      w[k] proportional to 1 / sqrt(count[k])
+        "inverse-frequency" w[k] proportional to 1 / count[k]   (more aggressive)
+        "none"              w[k] = 1 for all k (equivalent to passing None)
+    """
+    counts = np.zeros(n_marks, dtype=np.float64)
+    unique, c = np.unique(marks_idx, return_counts=True)
+    counts[unique] = c
+    counts = np.maximum(counts, 1.0)
+    if mode == "inverse-sqrt":
+        raw = 1.0 / np.sqrt(counts)
+    elif mode == "inverse-frequency":
+        raw = 1.0 / counts
+    elif mode == "none":
+        raw = np.ones(n_marks, dtype=np.float64)
+    else:
+        raise ValueError(f"unknown rebalance mode {mode!r}")
+    weights = raw / raw.mean()
+    return torch.tensor(weights, dtype=torch.float32)
+
+
 def train_one_epoch(
     model: NeuralHawkes,
     chunks: Iterable[TrainChunk],
@@ -35,10 +66,14 @@ def train_one_epoch(
     scheduler: CosineAnnealingLR | None = None,
     grad_clip: float = 1.0,
     device: str = "cpu",
+    mark_weights: torch.Tensor | None = None,
 ) -> dict[str, float]:
     """Run one epoch of training over the chunk iterator.
 
-    Returns a dict with mean train loss and number of events seen.
+    If `mark_weights` is provided, applies a class-rebalanced training
+    objective (see NeuralHawkes.log_likelihood). The eval/NLL reporting
+    path should always use mark_weights=None to keep val numbers
+    comparable across rebalanced and un-rebalanced runs.
     """
     model.train()
     total_loss = 0.0
@@ -51,7 +86,9 @@ def train_one_epoch(
         marks = chunk.marks.to(device)
         if times.numel() == 0:
             continue
-        ll = model.log_likelihood(times, lons, lats, marks, chunk.window)
+        ll = model.log_likelihood(
+            times, lons, lats, marks, chunk.window, mark_weights=mark_weights
+        )
         loss = -ll
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), grad_clip)

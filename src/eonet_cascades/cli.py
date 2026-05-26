@@ -17,7 +17,11 @@ from eonet_cascades.data.store import EventStore
 from eonet_cascades.interpret.excitation import excitation_to_dataframe, plot_excitation_heatmap
 from eonet_cascades.models.hawkes import KDESpatialBaseline, ParametricHawkes
 from eonet_cascades.models.neural_hawkes import NeuralHawkes
-from eonet_cascades.training.neural_loop import TrainChunk, train_one_epoch
+from eonet_cascades.training.neural_loop import (
+    TrainChunk,
+    mark_rebalance_weights,
+    train_one_epoch,
+)
 
 app = typer.Typer(
     name="eonet",
@@ -178,6 +182,43 @@ def model_train_neural_hawkes(
         Path | None,
         typer.Option(help="Output dir; default runs/tier1/{timestamp}"),
     ] = None,
+    mark_rebalance: Annotated[
+        bool,
+        typer.Option(
+            "--mark-rebalance/--no-mark-rebalance",
+            help=(
+                "Apply class-rebalanced training to break the mark-head "
+                "class-collapse documented in commit 420d5a3 (Tier 1.5)."
+            ),
+        ),
+    ] = False,
+    rebalance_mode: Annotated[
+        str,
+        typer.Option(
+            help="When --mark-rebalance is set: 'inverse-sqrt' (default) or 'inverse-frequency'."
+        ),
+    ] = "inverse-sqrt",
+    stratify_train: Annotated[
+        bool,
+        typer.Option(
+            "--stratify-train/--no-stratify-train",
+            help=(
+                "Stratified subsample: force ALL events of marks below "
+                "--stratify-threshold into the training subsample, then "
+                "random-fill the rest. Prevents rare marks from being "
+                "absent entirely after random subsampling."
+            ),
+        ),
+    ] = False,
+    stratify_threshold: Annotated[
+        float,
+        typer.Option(
+            help=(
+                "Mark-frequency fraction below which a mark is forced into the "
+                "training subsample whole. Only applies when --stratify-train is set."
+            )
+        ),
+    ] = 0.01,
 ) -> None:
     """Train Tier 1 Neural Hawkes on a windowed sample of the event archive."""
     import atexit
@@ -208,8 +249,19 @@ def model_train_neural_hawkes(
     df_val = store.query_events(time_start=until_dt, time_end=val_until_dt)
     console.print(f"Loaded {df_train.height:,} train events and {df_val.height:,} val events")
     if df_train.height > sample:
-        df_train = df_train.sample(sample, seed=seed)
-        console.print(f"Subsampled train to {df_train.height:,}")
+        if stratify_train:
+            df_train = _stratified_subsample(
+                df_train, n_target=sample, rare_threshold_frac=stratify_threshold, seed=seed
+            )
+            counts = df_train.group_by("mark").len().sort("len", descending=True)
+            console.print(
+                f"Stratified-subsampled train to {df_train.height:,} (rare threshold "
+                f"= {stratify_threshold:.3f}). Mark counts:"
+            )
+            console.print(counts)
+        else:
+            df_train = df_train.sample(sample, seed=seed)
+            console.print(f"Subsampled train to {df_train.height:,}")
 
     mark_names = sorted(
         set(df_train["mark"].unique().to_list()) | set(df_val["mark"].unique().to_list())
@@ -217,6 +269,19 @@ def model_train_neural_hawkes(
     n_marks = len(mark_names)
     mark_to_idx = {m: i for i, m in enumerate(mark_names)}
     console.print(f"K = {n_marks} marks: {mark_names}")
+
+    # Compute mark-rebalance weights from the train marks (post-stratification).
+    if mark_rebalance:
+        train_marks_idx = np.array(
+            [mark_to_idx[m] for m in df_train["mark"].to_list()], dtype=np.int64
+        )
+        mark_weights = mark_rebalance_weights(train_marks_idx, n_marks=n_marks, mode=rebalance_mode)
+        console.print(
+            f"Mark rebalance ({rebalance_mode}): weights = "
+            + ", ".join(f"{m}={mark_weights[i].item():.3f}" for i, m in enumerate(mark_names))
+        )
+    else:
+        mark_weights = None
 
     def chunked(df: pl.DataFrame, t0_dt: datetime) -> list[TrainChunk]:
         df = df.sort("time_start")
@@ -259,7 +324,14 @@ def model_train_neural_hawkes(
     history: list[dict] = []
     for epoch in range(n_epochs):
         t0_e = time.perf_counter()
-        train_info = train_one_epoch(model, train_chunks, optimizer, scheduler, device=device)
+        train_info = train_one_epoch(
+            model,
+            train_chunks,
+            optimizer,
+            scheduler,
+            device=device,
+            mark_weights=mark_weights,
+        )
         val_info = _tier1_eval_loop(model, val_chunks, device=device)
         elapsed = time.perf_counter() - t0_e
         record = {
@@ -297,6 +369,36 @@ def model_train_neural_hawkes(
     pl.DataFrame(history).write_csv(out / "train_curves.csv")
     console.print(f"Saved checkpoints + curves to {out}")
     store.close()
+
+
+def _stratified_subsample(df, n_target: int, rare_threshold_frac: float, seed: int):
+    """Force all events of rare marks into the subsample; random-fill the rest.
+
+    A mark is "rare" if its share of the input is < rare_threshold_frac.
+    Returns up to n_target rows, sorted by time_start. Untyped on df to keep
+    the top-level cli.py free of a polars import.
+    """
+    import polars as pl_
+
+    total = df.height
+    if total <= n_target:
+        return df.sort("time_start")
+    counts = df.group_by("mark").len()
+    rare_marks = [
+        m for m, c in zip(counts["mark"].to_list(), counts["len"].to_list(), strict=True)
+        if c / total < rare_threshold_frac
+    ]
+    if not rare_marks:
+        return df.sample(n_target, seed=seed).sort("time_start")
+    keep_df = df.filter(pl_.col("mark").is_in(rare_marks))
+    rest_df = df.filter(~pl_.col("mark").is_in(rare_marks))
+    n_rest = max(0, n_target - keep_df.height)
+    rest_sample = (
+        rest_df.sample(min(n_rest, rest_df.height), seed=seed)
+        if n_rest > 0
+        else rest_df.head(0)
+    )
+    return pl_.concat([keep_df, rest_sample], how="vertical").sort("time_start")
 
 
 def _tier1_eval_loop(model: NeuralHawkes, chunks: list, device: str) -> dict[str, float]:

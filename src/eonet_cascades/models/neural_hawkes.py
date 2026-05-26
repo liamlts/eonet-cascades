@@ -126,15 +126,26 @@ class NeuralHawkes(nn.Module):
         marks: torch.Tensor,
         window: tuple[float, float],
         n_mc_samples: int = 20,
+        mark_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute log L over a single event sequence in window.
 
         log L = sum_i (log lambda_{k_i}(t_i | h) + log p(x_i | h, k_i))
               - integral over [t_start, t_end] of sum_k lambda_k(t | h(t)) dt
+
+        Optional `mark_weights`: a (K,) tensor weighting the per-event log-lik
+        contributions by `w[marks[i]]`. Used for class-rebalanced TRAINING when
+        the mark distribution is heavily imbalanced (per the Tier 1.5 retrain
+        addressing the mark-head class-collapse diagnosed in commit 420d5a3).
+        Pass None (default) for evaluation / true-NLL reporting — weighted
+        log_likelihood is NOT the true Hawkes likelihood.
         """
         t_start, t_end = window
         out = self.forward(times, lons, lats, marks)
         per_event = out["log_lambda_k_at_event"] + out["log_p_x"]
+        if mark_weights is not None:
+            w = mark_weights.to(per_event.device).index_select(0, marks)
+            per_event = per_event * w
         sum_per_event = per_event.sum()
 
         device = times.device
