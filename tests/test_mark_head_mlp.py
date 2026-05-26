@@ -10,6 +10,7 @@ Surfaces tested:
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 from torch import nn
 
@@ -97,7 +98,6 @@ def test_mlp_mark_head_log_likelihood_is_finite():
 
 def test_invalid_mark_head_raises_value_error():
     """Unknown mark_head value raises a clear ValueError, not a silent fallback."""
-    import pytest
     with pytest.raises(ValueError, match="unknown mark_head"):
         NeuralHawkes(
             n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
