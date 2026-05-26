@@ -377,7 +377,15 @@ def model_train_neural_hawkes(
         out / "checkpoint_best.pt",
     )
     torch.save(
-        {"state_dict": model.state_dict(), "mark_names": mark_names},
+        {
+            "state_dict": model.state_dict(),
+            "mark_names": mark_names,
+            "config": {
+                "hidden_dim": hidden_dim,
+                "mark_head": mark_head,
+                "n_marks": n_marks,
+            },
+        },
         out / "checkpoint_final.pt",
     )
     pl.DataFrame(history).write_csv(out / "train_curves.csv")
