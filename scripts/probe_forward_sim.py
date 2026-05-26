@@ -49,9 +49,11 @@ def main() -> None:
     ckpt = torch.load(RUN_DIR / "checkpoint_best.pt", weights_only=False)
     mark_names: list[str] = ckpt["mark_names"]
     n_marks = len(mark_names)
-    cfg = ckpt.get("config", {})
-    mark_head_str = cfg.get("mark_head", "linear")  # default for pre-mark_head checkpoints
-    hidden_dim_val = cfg.get("hidden_dim", 64)
+    ckpt_cfg = ckpt.get("config", {})
+    # NOTE: any checkpoint missing 'config' is assumed linear; an MLP-head
+    # checkpoint without a config dict would silently load the wrong architecture.
+    mark_head_str = ckpt_cfg.get("mark_head", "linear")
+    hidden_dim_val = ckpt_cfg.get("hidden_dim", 64)
     model = NeuralHawkes(
         n_marks=n_marks, hidden_dim=hidden_dim_val, mark_head=mark_head_str
     )
