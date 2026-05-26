@@ -18,7 +18,6 @@ hours at this n.
 from __future__ import annotations
 
 import shutil
-import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,9 +74,12 @@ def main() -> None:
     model.eval()
 
     cfg = DataConfig()
-    print(f"snapshotting {cfg.duckdb_path} ...")
-    snap = Path(tempfile.mkdtemp()) / "events.duckdb"
-    shutil.copy2(cfg.duckdb_path, snap)
+    # Snapshot onto the source volume rather than /tmp — the boot disk has 200 MB
+    # to spare and the DuckDB is ~1.1 GB. The source volume (external) has TB free.
+    src = Path(cfg.duckdb_path)
+    snap = src.parent / "run_task13_v2_snap.duckdb"
+    print(f"snapshotting {src} -> {snap}")
+    shutil.copy2(src, snap)
     store = EventStore(snap, read_only=True)
     df = store.query_events(time_start=SLICE_START, time_end=SLICE_END)
     print(f"raw Jul 2024 slice: {df.height} events")
