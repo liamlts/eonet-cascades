@@ -253,7 +253,9 @@ experiment replaces it with an MLP (`64 → 32 → 8 ReLU`) via the
 Spec: `docs/superpowers/specs/2026-05-26-tier1-mlp-mark-head-design.md`.
 
 **Workflow:** repeat Steps 1–3 (provision, bootstrap, transfer
-DuckDB). Skip Step 5 and Step 5′. Use Step 5″ below.
+DuckDB). Skip Step 5 and Step 5′. Use Step 5″ below. After training,
+use Step 7″ (not Step 7) to pull results — Step 7 hardcodes
+`runs/tier1/` and would pull the wrong directory.
 
 ### Step 5″ — Launch the MLP-head training run
 
@@ -279,9 +281,24 @@ OMITTED. This is a single-variable test of the mark-head architecture
 in isolation; rebalance hurt likelihood last time (val NLL 4.20 → 6.80)
 and we don't want to confound the H3 result.
 
-Expected: same ~5 h wall time as Tier 1 and Tier 1.5 (15 epochs × ~21
-min/epoch). Eval NLL is reported per-event and is directly comparable
+Expected: ~5 h 20 m wall time, matching the Tier 1.5 run (15 epochs ×
+~21 min/epoch on the A10). NOTE: the top-of-file header and the
+original Tier 1 section quote 15–20 hr — that was a conservative
+estimate from before we had real timing data; the actual Tier 1 and
+Tier 1.5 runs both completed in ~5–6 hr. Plan for ~$5 cost (~$0.75/hr
+× ~5.5 hr). Eval NLL is reported per-event and is directly comparable
 to the original Tier 1's 4.20.
+
+### Step 7″ — Pull results back to the Mac
+
+From the local Mac:
+
+```bash
+LATEST_REMOTE=$(ssh ubuntu@<INSTANCE_IP> 'ls -t /home/ubuntu/eonet-cascades/runs/tier1_mlp/ | head -1')
+mkdir -p ~/Projects/eonet-cascades/runs/tier1_mlp
+scp -r ubuntu@<INSTANCE_IP>:/home/ubuntu/eonet-cascades/runs/tier1_mlp/$LATEST_REMOTE \
+       ~/Projects/eonet-cascades/runs/tier1_mlp/$LATEST_REMOTE
+```
 
 ### Acceptance — what to check after pulling results back
 
@@ -303,6 +320,7 @@ uv run python scripts/probe_forward_sim.py
 # 3) Re-render the cross-tier notebook (sanity check):
 uv run jupyter nbconvert --to notebook --execute --inplace \
   notebooks/03_tier0_vs_tier1.ipynb
+# Pass: nbconvert exits 0 (no Python errors during execution).
 ```
 
 Decision table:
