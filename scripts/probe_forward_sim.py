@@ -30,7 +30,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-import polars as pl
 import torch
 
 from eonet_cascades.config import DataConfig
@@ -50,7 +49,12 @@ def main() -> None:
     ckpt = torch.load(RUN_DIR / "checkpoint_best.pt", weights_only=False)
     mark_names: list[str] = ckpt["mark_names"]
     n_marks = len(mark_names)
-    model = NeuralHawkes(n_marks=n_marks, hidden_dim=64)
+    cfg = ckpt.get("config", {})
+    mark_head_str = cfg.get("mark_head", "linear")  # default for pre-mark_head checkpoints
+    hidden_dim_val = cfg.get("hidden_dim", 64)
+    model = NeuralHawkes(
+        n_marks=n_marks, hidden_dim=hidden_dim_val, mark_head=mark_head_str
+    )
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
 
