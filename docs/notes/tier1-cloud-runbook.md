@@ -259,10 +259,33 @@ use Step 7″ (not Step 7) to pull results — Step 7 hardcodes
 
 ### Step 5″ — Launch the MLP-head training run
 
+**Pre-flight (cheap; catches CUDA shape errors before the long run).**
+Before launching the nohup line below, do a quick 1-epoch sanity run
+on the cloud GPU with --mark-head mlp:
+
 ```bash
 # On the cloud instance:
 cd ~/eonet-cascades
 git pull   # ensure commit a413af1 (the --mark-head flag) is present
+uv run eonet model train-neural-hawkes \
+  --since 2024-01-01 --until 2024-02-01 \
+  --val-until 2024-02-15 \
+  --sample 10000 \
+  --n-epochs 1 \
+  --hidden-dim 64 \
+  --device cuda \
+  --mark-head mlp
+```
+
+If the pre-flight prints one `{'epoch': 0, ...}` row and `Saved checkpoints
++ curves to runs/tier1/<ts>/` without a traceback, you're cleared. The
+local-CPU smoke test caught this same path in commit f892f52, but A10
+CUDA can occasionally surface shape errors that CPU doesn't.
+
+Now the full run:
+
+```bash
+# On the cloud instance (assuming pre-flight passed):
 nohup uv run eonet model train-neural-hawkes \
   --since 2022-01-01 --until 2024-06-30 \
   --val-until 2024-12-31 \
