@@ -35,6 +35,7 @@ class NeuralHawkes(nn.Module):
         mark_emb_dim: int = 16,
         spatial_emb_dim: int = 16,
         n_mix: int = 8,
+        mark_head: str = "linear",
     ) -> None:
         super().__init__()
         self.n_marks = n_marks
@@ -44,9 +45,24 @@ class NeuralHawkes(nn.Module):
         self.spatial_emb = SpatialEmbedding(dim=spatial_emb_dim)
         input_dim = mark_emb_dim + spatial_emb_dim
         self.cell = CTLSTMCell(input_dim=input_dim, hidden_dim=hidden_dim)
-        # Per-mark temporal intensity head — replaces the old W_lambda_t (scalar)
-        # and W_mark (softmax) pair.
-        self.W_lambda_k = nn.Linear(hidden_dim, n_marks)
+        # Per-mark temporal intensity head. The "linear" branch is the
+        # original Tier 1 architecture (single nn.Linear). The "mlp" branch
+        # (added 2026-05-26) is a 2-layer ReLU MLP that tests whether
+        # non-linear capacity breaks the rank-1 mark-head collapse documented
+        # in docs/notes/tier1_5-result.md.
+        if mark_head == "linear":
+            self.W_lambda_k = nn.Linear(hidden_dim, n_marks)
+        elif mark_head == "mlp":
+            self.W_lambda_k = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_dim // 2, n_marks),
+            )
+        else:
+            raise ValueError(
+                f"unknown mark_head: {mark_head!r} (expected 'linear' or 'mlp')"
+            )
+        self.mark_head = mark_head
         self.mdn = MDNHead(input_dim=hidden_dim + mark_emb_dim, n_components=n_mix)
 
     def _event_input(
