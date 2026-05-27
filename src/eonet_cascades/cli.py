@@ -311,7 +311,12 @@ def model_train_neural_hawkes(
     if aux_lambda > 0.0:
         console.print(
             f"Auxiliary mark-classification loss enabled with aux_lambda={aux_lambda:.3f}. "
-            "Eval reports pure Hawkes NLL (aux_lambda=0.0)."
+            "Eval (val_nll) reports pure Hawkes NLL and remains comparable to Tier 1's 4.20 baseline."
+        )
+        console.print(
+            "[yellow]Note: train_nll column in train_curves.csv is the BLENDED loss "
+            f"(Hawkes + {aux_lambda:.3f} * cross_entropy), not pure Hawkes NLL. "
+            "Cross-run train_nll comparisons require subtracting the aux contribution.[/yellow]"
         )
 
     def chunked(df: pl.DataFrame, t0_dt: datetime) -> list[TrainChunk]:
