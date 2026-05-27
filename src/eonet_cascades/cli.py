@@ -230,6 +230,20 @@ def model_train_neural_hawkes(
             )
         ),
     ] = "linear",
+    aux_lambda: Annotated[
+        float,
+        typer.Option(
+            "--aux-lambda",
+            help=(
+                "Coefficient for the auxiliary mark-classification loss "
+                "(softmax cross-entropy on raw mark-head logits z). Default 0.0 "
+                "preserves existing Tier 1 / 1.5 / MLP behavior. Set to 1.0 to "
+                "enable the H4 experiment (docs/superpowers/specs/"
+                "2026-05-26-tier1-aux-mark-loss-design.md). Eval reports pure "
+                "Hawkes NLL regardless of this value."
+            ),
+        ),
+    ] = 0.0,
 ) -> None:
     """Train Tier 1 Neural Hawkes on a windowed sample of the event archive."""
     import atexit
@@ -294,6 +308,12 @@ def model_train_neural_hawkes(
     else:
         mark_weights = None
 
+    if aux_lambda > 0.0:
+        console.print(
+            f"Auxiliary mark-classification loss enabled with aux_lambda={aux_lambda:.3f}. "
+            "Eval reports pure Hawkes NLL (aux_lambda=0.0)."
+        )
+
     def chunked(df: pl.DataFrame, t0_dt: datetime) -> list[TrainChunk]:
         df = df.sort("time_start")
         if df.height == 0:
@@ -344,6 +364,7 @@ def model_train_neural_hawkes(
             scheduler,
             device=device,
             mark_weights=mark_weights,
+            aux_lambda=aux_lambda,
         )
         val_info = _tier1_eval_loop(model, val_chunks, device=device)
         elapsed = time.perf_counter() - t0_e
@@ -371,6 +392,7 @@ def model_train_neural_hawkes(
                 "val_until": val_until,
                 "hidden_dim": hidden_dim,
                 "mark_head": mark_head,
+                "aux_lambda": aux_lambda,
                 "n_marks": n_marks,
             },
         },
@@ -383,6 +405,7 @@ def model_train_neural_hawkes(
             "config": {
                 "hidden_dim": hidden_dim,
                 "mark_head": mark_head,
+                "aux_lambda": aux_lambda,
                 "n_marks": n_marks,
             },
         },
