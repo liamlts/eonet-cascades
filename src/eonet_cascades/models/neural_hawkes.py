@@ -90,6 +90,7 @@ class NeuralHawkes(nn.Module):
             log_lambda_k_at_event : (N,) log lambda_{k_i}(t_i | h(t_i))
             log_p_x               : (N,) log p(x_i | h, k_i)
             h_at_events           : (N, hidden_dim) hidden state at event times
+            z_at_events           : (N, n_marks) raw mark-head logits pre-softplus
         """
         n = times.shape[0]
         device = times.device
@@ -114,7 +115,7 @@ class NeuralHawkes(nn.Module):
             h_at_t, _ = self.cell.evolve(c_post_i, c_bar_i, delta_i, o_i, dt)
 
             z_at_t = self.W_lambda_k(h_at_t)  # (1, n_marks) raw logits pre-softplus
-            lam_k = torch.nn.functional.softplus(z_at_t).clamp_min(1e-12)
+            lam_k = nnf.softplus(z_at_t).clamp_min(1e-12)
             log_lam_at_obs = torch.log(lam_k[0, marks[i]])  # scalar
 
             mark_e = self.mark_emb(marks[i : i + 1])
