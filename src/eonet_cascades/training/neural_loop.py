@@ -67,13 +67,15 @@ def train_one_epoch(
     grad_clip: float = 1.0,
     device: str = "cpu",
     mark_weights: torch.Tensor | None = None,
+    aux_lambda: float = 0.0,
 ) -> dict[str, float]:
     """Run one epoch of training over the chunk iterator.
 
     If `mark_weights` is provided, applies a class-rebalanced training
-    objective (see NeuralHawkes.log_likelihood). The eval/NLL reporting
-    path should always use mark_weights=None to keep val numbers
-    comparable across rebalanced and un-rebalanced runs.
+    objective (see NeuralHawkes.log_likelihood). If `aux_lambda > 0`,
+    adds the H4 auxiliary mark-classification cross-entropy loss. The
+    eval/NLL reporting path should always use both at default (None / 0.0)
+    so val numbers stay comparable across runs.
     """
     model.train()
     total_loss = 0.0
@@ -87,7 +89,9 @@ def train_one_epoch(
         if times.numel() == 0:
             continue
         ll = model.log_likelihood(
-            times, lons, lats, marks, chunk.window, mark_weights=mark_weights
+            times, lons, lats, marks, chunk.window,
+            mark_weights=mark_weights,
+            aux_lambda=aux_lambda,
         )
         loss = -ll
         loss.backward()
