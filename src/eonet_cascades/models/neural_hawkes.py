@@ -148,6 +148,7 @@ class NeuralHawkes(nn.Module):
         window: tuple[float, float],
         n_mc_samples: int = 20,
         mark_weights: torch.Tensor | None = None,
+        aux_lambda: float = 0.0,
     ) -> torch.Tensor:
         """Compute log L over a single event sequence in window.
 
@@ -160,6 +161,14 @@ class NeuralHawkes(nn.Module):
         addressing the mark-head class-collapse diagnosed in commit 420d5a3).
         Pass None (default) for evaluation / true-NLL reporting — weighted
         log_likelihood is NOT the true Hawkes likelihood.
+
+        Optional `aux_lambda`: coefficient for the H4 auxiliary mark-classification
+        loss. When > 0, adds `aux_lambda * sum_i log softmax(z_i)_{k_i_observed}`
+        to the log-likelihood, where z = W_lambda_k(h) are the raw mark-head
+        logits. Provides explicit gradient on softmax(z) (mark composition)
+        which is decoupled from the rate gradient via softplus(z). Pass 0.0
+        (default) for evaluation — val NLL reported elsewhere should always be
+        pure Hawkes NLL.
         """
         t_start, t_end = window
         out = self.forward(times, lons, lats, marks)
@@ -168,6 +177,23 @@ class NeuralHawkes(nn.Module):
             w = mark_weights.to(per_event.device).index_select(0, marks)
             per_event = per_event * w
         sum_per_event = per_event.sum()
+
+        # H4 auxiliary mark-classification loss (cross-entropy on softmax(z)).
+        # Provides explicit gradient on RELATIVE z magnitudes (mark composition).
+        # Softmax is shift-invariant in z, so this does not affect the rate
+        # gradient which flows through softplus(z). Eval should always pass
+        # aux_lambda=0.0 to keep val NLL comparable to the original Tier 1.
+        if aux_lambda != 0.0:
+            z = out["z_at_events"]  # (N, K) raw logits
+            log_p_mark = nnf.log_softmax(z, dim=-1)
+            log_p_obs = log_p_mark.gather(1, marks.unsqueeze(1)).squeeze(1)  # (N,)
+            aux_term = log_p_obs.sum()  # SUM of log P(observed mark | h)
+            # Added to per-event sum: log_p_obs entries are <= 0, so adding
+            # aux_lambda * aux_term (with aux_lambda > 0) strictly decreases
+            # log_likelihood. The training loop negates to get a minimizable
+            # loss; this becomes -aux_lambda * sum log P(k_obs|h) = aux_lambda
+            # times the standard categorical cross-entropy.
+            sum_per_event = sum_per_event + aux_lambda * aux_term
 
         device = times.device
         gen = torch.Generator(device="cpu")
