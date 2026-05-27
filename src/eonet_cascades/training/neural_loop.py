@@ -76,9 +76,21 @@ def train_one_epoch(
     adds the H4 auxiliary mark-classification cross-entropy loss. The
     eval/NLL reporting path should always use both at default (None / 0.0)
     so val numbers stay comparable across runs.
+
+    Return dict keys:
+      - loss_sum: accumulated -log_likelihood (blended objective when aux>0)
+      - n_events: total event count across chunks
+      - nll_per_event: loss_sum / n_events (blended when aux_lambda > 0)
+      - nll_hawkes_per_event: pure Hawkes NLL per event, independent of
+        aux_lambda. This is the semantically-consistent column to write to
+        train_curves.csv for cross-run comparison.
+      - aux_per_event: aux contribution per event (0 when aux_lambda == 0),
+        equal to nll_per_event - nll_hawkes_per_event up to fp roundoff.
     """
     model.train()
     total_loss = 0.0
+    total_hawkes_loss = 0.0
+    total_aux_loss = 0.0
     total_events = 0
     for chunk in chunks:
         optimizer.zero_grad()
@@ -88,11 +100,13 @@ def train_one_epoch(
         marks = chunk.marks.to(device)
         if times.numel() == 0:
             continue
-        ll = model.log_likelihood(
+        components = model.log_likelihood(
             times, lons, lats, marks, chunk.window,
             mark_weights=mark_weights,
             aux_lambda=aux_lambda,
+            return_components=True,
         )
+        ll = components["total"]
         loss = -ll
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
@@ -100,9 +114,14 @@ def train_one_epoch(
         if scheduler is not None:
             scheduler.step()
         total_loss += float(loss.item())
+        total_hawkes_loss += float(-components["hawkes"].item())
+        total_aux_loss += float(-components["aux"].item())
         total_events += int(times.shape[0])
+    n = max(1, total_events)
     return {
         "loss_sum": total_loss,
         "n_events": total_events,
-        "nll_per_event": total_loss / max(1, total_events),
+        "nll_per_event": total_loss / n,
+        "nll_hawkes_per_event": total_hawkes_loss / n,
+        "aux_per_event": total_aux_loss / n,
     }

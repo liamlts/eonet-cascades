@@ -14,8 +14,10 @@ from __future__ import annotations
 import numpy as np
 import torch
 from torch import nn
+from torch.optim import AdamW
 
 from eonet_cascades.models.neural_hawkes import NeuralHawkes
+from eonet_cascades.training.neural_loop import TrainChunk, train_one_epoch
 
 
 def _small_inputs(n_marks: int = 3, n_events: int = 20, seed: int = 0):
@@ -126,3 +128,153 @@ def test_aux_loss_gradient_flows_to_mark_head():
             assert g is not None, f"head[{i}].weight has no .grad"
             assert torch.isfinite(g).all(), f"head[{i}].weight.grad has non-finite values"
             assert g.abs().sum().item() > 0.0, f"head[{i}].weight.grad is all zeros"
+
+
+# ---------------------------------------------------------------------------
+# Tests for hawkes-vs-aux loss decomposition (lets train_curves.csv carry a
+# semantically-consistent pure-Hawkes train_nll column even when aux_lambda > 0).
+# ---------------------------------------------------------------------------
+
+
+def test_log_likelihood_return_components_dict_shape():
+    """log_likelihood(return_components=True) returns a dict with scalar
+    'total', 'hawkes', and 'aux' tensors."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=4, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    model.eval()
+    times, lons, lats, marks = _small_inputs(n_marks=4, n_events=15, seed=4)
+    out = model.log_likelihood(
+        times, lons, lats, marks, window=(0.0, 20.0),
+        aux_lambda=1.0, return_components=True,
+    )
+    assert isinstance(out, dict), f"expected dict, got {type(out).__name__}"
+    for key in ("total", "hawkes", "aux"):
+        assert key in out, f"missing key {key!r}; got {sorted(out.keys())}"
+        assert isinstance(out[key], torch.Tensor), f"{key} is not a tensor"
+        assert out[key].dim() == 0, f"{key} should be scalar, got shape {tuple(out[key].shape)}"
+        assert torch.isfinite(out[key]), f"{key} is non-finite: {out[key].item()}"
+
+
+def test_log_likelihood_components_sum_to_total():
+    """hawkes + aux == total (within float tolerance)."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=4, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    model.eval()
+    times, lons, lats, marks = _small_inputs(n_marks=4, n_events=15, seed=5)
+    out = model.log_likelihood(
+        times, lons, lats, marks, window=(0.0, 20.0),
+        aux_lambda=0.7, return_components=True,
+    )
+    recon = out["hawkes"] + out["aux"]
+    assert torch.allclose(recon, out["total"], atol=1e-5), (
+        f"hawkes+aux={recon.item():.6f} != total={out['total'].item():.6f}"
+    )
+
+
+def test_log_likelihood_components_zero_aux_when_lambda_zero():
+    """aux_lambda=0 ⇒ aux component is exactly 0 and hawkes == total."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=4, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    model.eval()
+    times, lons, lats, marks = _small_inputs(n_marks=4, n_events=15, seed=6)
+    out = model.log_likelihood(
+        times, lons, lats, marks, window=(0.0, 20.0),
+        aux_lambda=0.0, return_components=True,
+    )
+    assert out["aux"].item() == 0.0, f"aux should be 0.0, got {out['aux'].item()}"
+    assert torch.equal(out["hawkes"], out["total"]), (
+        "hawkes should equal total when aux_lambda=0"
+    )
+
+
+def test_log_likelihood_return_components_total_matches_scalar_call():
+    """Total from return_components=True equals the scalar from a normal call."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=4, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    model.eval()
+    times, lons, lats, marks = _small_inputs(n_marks=4, n_events=15, seed=7)
+    ll_scalar = model.log_likelihood(
+        times, lons, lats, marks, window=(0.0, 20.0), aux_lambda=0.5,
+    )
+    out = model.log_likelihood(
+        times, lons, lats, marks, window=(0.0, 20.0),
+        aux_lambda=0.5, return_components=True,
+    )
+    assert torch.allclose(out["total"], ll_scalar, atol=1e-6), (
+        f"total={out['total'].item():.6f} != scalar ll={ll_scalar.item():.6f}"
+    )
+
+
+def _tiny_train_chunk(n_events: int = 12, seed: int = 0):
+    """Build a single TrainChunk for train_one_epoch tests."""
+    times, lons, lats, marks = _small_inputs(n_marks=3, n_events=n_events, seed=seed)
+    return TrainChunk(times=times, lons=lons, lats=lats, marks=marks, window=(0.0, 20.0))
+
+
+def test_train_one_epoch_returns_hawkes_per_event_key():
+    """train_one_epoch return dict must include nll_hawkes_per_event so cli.py
+    can write a semantically-consistent train_nll_hawkes column."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    optimizer = AdamW(model.parameters(), lr=1e-3)
+    chunk = _tiny_train_chunk(seed=10)
+    info = train_one_epoch(
+        model, [chunk], optimizer, device="cpu", aux_lambda=0.5,
+    )
+    assert "nll_hawkes_per_event" in info, (
+        f"missing nll_hawkes_per_event; got {sorted(info.keys())}"
+    )
+    assert isinstance(info["nll_hawkes_per_event"], float)
+
+
+def test_train_one_epoch_hawkes_equals_total_when_aux_zero():
+    """With aux_lambda=0, nll_hawkes_per_event == nll_per_event exactly."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    optimizer = AdamW(model.parameters(), lr=1e-3)
+    chunk = _tiny_train_chunk(seed=11)
+    info = train_one_epoch(
+        model, [chunk], optimizer, device="cpu", aux_lambda=0.0,
+    )
+    assert info["nll_hawkes_per_event"] == info["nll_per_event"], (
+        f"nll_hawkes={info['nll_hawkes_per_event']} != "
+        f"nll_per_event={info['nll_per_event']} at aux_lambda=0"
+    )
+
+
+def test_train_one_epoch_hawkes_lt_blended_when_aux_positive():
+    """With aux_lambda > 0 the blended training loss strictly exceeds the
+    pure Hawkes NLL (loss = -[hawkes_ll + aux_lambda*sum log P(k|h)] and the
+    aux term is ≤ 0, so subtracting it increases the loss)."""
+    torch.manual_seed(0)
+    model = NeuralHawkes(
+        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        mark_head="mlp",
+    )
+    optimizer = AdamW(model.parameters(), lr=1e-3)
+    chunk = _tiny_train_chunk(seed=12)
+    info = train_one_epoch(
+        model, [chunk], optimizer, device="cpu", aux_lambda=1.0,
+    )
+    assert info["nll_hawkes_per_event"] < info["nll_per_event"], (
+        f"expected pure hawkes nll < blended nll; got hawkes="
+        f"{info['nll_hawkes_per_event']:.4f} vs blended={info['nll_per_event']:.4f}"
+    )

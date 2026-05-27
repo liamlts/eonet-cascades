@@ -149,7 +149,8 @@ class NeuralHawkes(nn.Module):
         n_mc_samples: int = 20,
         mark_weights: torch.Tensor | None = None,
         aux_lambda: float = 0.0,
-    ) -> torch.Tensor:
+        return_components: bool = False,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
         """Compute log L over a single event sequence in window.
 
         log L = sum_i (log lambda_{k_i}(t_i | h) + log p(x_i | h, k_i))
@@ -169,6 +170,13 @@ class NeuralHawkes(nn.Module):
         which is decoupled from the rate gradient via softplus(z). Pass 0.0
         (default) for evaluation — val NLL reported elsewhere should always be
         pure Hawkes NLL.
+
+        Optional `return_components`: when True, returns a dict
+        {"total", "hawkes", "aux"} of scalar tensors where total == hawkes + aux.
+        "hawkes" is the pure Hawkes log-likelihood (unaffected by aux_lambda);
+        "aux" is the aux_lambda * sum log P(k_obs|h) contribution (0 when
+        aux_lambda == 0). Lets the training loop record a semantically-
+        consistent pure-Hawkes NLL alongside the blended training objective.
         """
         t_start, t_end = window
         out = self.forward(times, lons, lats, marks)
@@ -183,6 +191,7 @@ class NeuralHawkes(nn.Module):
         # Softmax is shift-invariant in z, so this does not affect the rate
         # gradient which flows through softplus(z). Eval should always pass
         # aux_lambda=0.0 to keep val NLL comparable to the original Tier 1.
+        aux_contribution: torch.Tensor | None = None
         if aux_lambda > 0.0:
             z = out["z_at_events"]  # (N, K) raw logits
             log_p_mark = nnf.log_softmax(z, dim=-1)
@@ -193,7 +202,8 @@ class NeuralHawkes(nn.Module):
             # log_likelihood. The training loop negates to get a minimizable
             # loss; this becomes -aux_lambda * sum log P(k_obs|h) = aux_lambda
             # times the standard categorical cross-entropy.
-            sum_per_event = sum_per_event + aux_lambda * aux_term
+            aux_contribution = aux_lambda * aux_term
+            sum_per_event = sum_per_event + aux_contribution
 
         device = times.device
         gen = torch.Generator(device="cpu")
@@ -204,7 +214,15 @@ class NeuralHawkes(nn.Module):
         sample_times = sample_times.to(device)
         lam_total_at_samples = self._lambda_total_at(times, lons, lats, marks, sample_times)
         integral = lam_total_at_samples.mean() * (t_end - t_start)
-        return sum_per_event - integral
+        total = sum_per_event - integral
+        if return_components:
+            if aux_contribution is None:
+                aux_contribution = total.new_zeros(())
+                hawkes = total
+            else:
+                hawkes = total - aux_contribution
+            return {"total": total, "hawkes": hawkes, "aux": aux_contribution}
+        return total
 
     def _lambda_total_at(
         self,

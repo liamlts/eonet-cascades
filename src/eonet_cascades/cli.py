@@ -314,9 +314,9 @@ def model_train_neural_hawkes(
             "Eval (val_nll) reports pure Hawkes NLL and remains comparable to Tier 1's 4.20 baseline."
         )
         console.print(
-            "[yellow]Note: train_nll column in train_curves.csv is the BLENDED loss "
-            f"(Hawkes + {aux_lambda:.3f} * cross_entropy), not pure Hawkes NLL. "
-            "Cross-run train_nll comparisons require subtracting the aux contribution.[/yellow]"
+            f"[yellow]train_nll column = blended loss (Hawkes + {aux_lambda:.3f} * cross_entropy). "
+            "Use the train_nll_hawkes column for cross-run comparison with Tier 1 / 1.5 / MLP "
+            "runs (pure Hawkes NLL regardless of aux_lambda).[/yellow]"
         )
 
     def chunked(df: pl.DataFrame, t0_dt: datetime) -> list[TrainChunk]:
@@ -376,6 +376,8 @@ def model_train_neural_hawkes(
         record = {
             "epoch": epoch,
             "train_nll": train_info["nll_per_event"],
+            "train_nll_hawkes": train_info["nll_hawkes_per_event"],
+            "train_aux_per_event": train_info["aux_per_event"],
             "val_nll": val_info["nll_per_event"],
             "elapsed_s": elapsed,
         }
