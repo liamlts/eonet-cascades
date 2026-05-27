@@ -106,13 +106,15 @@ class NeuralHawkes(nn.Module):
         log_lambda_k_list: list[torch.Tensor] = []
         log_p_x_list: list[torch.Tensor] = []
         h_event_list: list[torch.Tensor] = []
+        z_event_list: list[torch.Tensor] = []
 
         for i in range(n):
             t_i = times[i : i + 1]
             dt = (t_i - t_last_i).clamp(min=0.0).unsqueeze(-1)
             h_at_t, _ = self.cell.evolve(c_post_i, c_bar_i, delta_i, o_i, dt)
 
-            lam_k = self._lambda_k(h_at_t)  # (1, n_marks)
+            z_at_t = self.W_lambda_k(h_at_t)  # (1, n_marks) raw logits pre-softplus
+            lam_k = torch.nn.functional.softplus(z_at_t).clamp_min(1e-12)
             log_lam_at_obs = torch.log(lam_k[0, marks[i]])  # scalar
 
             mark_e = self.mark_emb(marks[i : i + 1])
@@ -123,6 +125,7 @@ class NeuralHawkes(nn.Module):
             log_lambda_k_list.append(log_lam_at_obs)
             log_p_x_list.append(log_p_x_i.squeeze())
             h_event_list.append(h_at_t.squeeze(0))
+            z_event_list.append(z_at_t.squeeze(0))
 
             ev_inp = self._event_input(lons[i : i + 1], lats[i : i + 1], marks[i : i + 1])
             _, c_post_i, c_bar_i, delta_i, o_i = self.cell.update(ev_inp, h_at_t, c_post_i, c_bar_i)
@@ -132,6 +135,7 @@ class NeuralHawkes(nn.Module):
             "log_lambda_k_at_event": torch.stack(log_lambda_k_list),
             "log_p_x": torch.stack(log_p_x_list),
             "h_at_events": torch.stack(h_event_list),
+            "z_at_events": torch.stack(z_event_list),
         }
 
     def log_likelihood(
