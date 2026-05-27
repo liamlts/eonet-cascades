@@ -12,7 +12,6 @@ Surfaces tested:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 from torch import nn
 
@@ -76,9 +75,8 @@ def test_nonzero_aux_lambda_changes_log_likelihood():
     ll_zero = model.log_likelihood(times, lons, lats, marks, window=(0.0, 20.0), aux_lambda=0.0)
     ll_one = model.log_likelihood(times, lons, lats, marks, window=(0.0, 20.0), aux_lambda=1.0)
     assert not torch.equal(ll_zero, ll_one), "aux_lambda=1.0 should change the loss"
-    # The aux loss is subtracted from log_likelihood (it's a NEGATIVE log prob
-    # added as a penalty to the maximum-likelihood objective). So
-    # log_likelihood with aux_lambda > 0 should be LESS than without.
+    # The aux term is + aux_lambda * sum log P(k_obs | h). Since log probabilities
+    # are <= 0, this strictly decreases log_likelihood relative to aux_lambda=0.
     assert ll_one.item() < ll_zero.item(), (
         f"aux loss should reduce log_likelihood; got ll_one={ll_one.item():.4f}, "
         f"ll_zero={ll_zero.item():.4f}"
