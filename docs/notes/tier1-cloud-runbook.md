@@ -353,3 +353,80 @@ Decision table:
 | (1) + (2) both pass | H3 confirmed; pivot to writeup + headline figure rendering |
 | (1) fails, (2) passes | Fix-with-cost; weaker but publishable; investigate optimizer / lr |
 | (2) fails (whether (1) passes or not) | H3 ruled out; advance to H2 (mark-agnostic spatial head). Draft spec at `docs/superpowers/specs/2026-05-27-tier1-shared-mdn-design.md` before any further compute spend. |
+
+---
+
+## Tier 1 with auxiliary mark loss — H4 experiment (added 2026-05-26)
+
+H3's MLP head (`docs/notes/tier1_mlp-result.md`) achieved the best val
+NLL of any tier (3.38) but failed the primary acceptance criterion
+(forward-sim probe row-deviation 0.0000). The collapse is robust to
+both class rebalancing (Tier 1.5) and mark-head architecture (MLP).
+
+H4 from the analysis: the joint Hawkes NLL has insufficient gradient
+signal on mark composition. This experiment adds an explicit
+cross-entropy auxiliary loss via the `--aux-lambda` flag.
+
+Spec: `docs/superpowers/specs/2026-05-26-tier1-aux-mark-loss-design.md`.
+
+**Workflow:** repeat Steps 1–3 (provision + bootstrap + DuckDB
+transfer). Skip Step 5, Step 5′, and Step 5″. Use Step 5‴ below.
+
+### Step 5‴ — Launch the H4 training run
+
+```bash
+# On the cloud instance:
+cd ~/eonet-cascades
+git pull   # ensure the --aux-lambda flag is present
+nohup uv run eonet model train-neural-hawkes \
+  --since 2022-01-01 --until 2024-06-30 \
+  --val-until 2024-12-31 \
+  --sample 200000 \
+  --n-epochs 15 \
+  --hidden-dim 64 \
+  --lr 1e-3 \
+  --device cuda \
+  --mark-head mlp \
+  --aux-lambda 1.0 \
+  --out-dir runs/tier1_aux/$(date -u +%Y%m%d_%H%M%S) \
+  > train_tier1_aux.log 2>&1 &
+```
+
+`--mark-rebalance` and `--stratify-train` are intentionally OMITTED.
+Single-variable test: the only change from Tier 1-MLP is the addition
+of `--aux-lambda 1.0`.
+
+Expected: same ~5h 20m wall time as Tier 1-MLP. **Val NLL** reported in
+`train_curves.csv` is pure Hawkes NLL, directly comparable to Tier 1's
+4.20. **train_nll** is the BLENDED loss (Hawkes + 1.0 × cross-entropy)
+and is NOT directly comparable to prior runs — a yellow warning prints
+to the training log when --aux-lambda > 0.
+
+### Acceptance — what to check after pulling results back
+
+```bash
+# On the Mac, after Step 7 pulls runs/tier1_aux/<ts>/ down:
+LATEST_AUX=$(ls -t runs/tier1_aux/ | head -1)
+
+# 1) val NLL within ~5% of Tier 1's 4.20:
+tail -n 1 runs/tier1_aux/$LATEST_AUX/train_curves.csv
+# Pass: val_nll <= 4.41
+
+# 2) forward-sim probe row-deviation > 0.1:
+# Edit scripts/probe_forward_sim.py RUN_DIR to the new checkpoint, then:
+uv run python scripts/probe_forward_sim.py
+# Pass: total |row - row_mean| > 0.1 in either Seed A or Seed B
+# (was 0.0023 Tier 1, 0.0000 Tier 1.5, 0.0000 Tier 1-MLP)
+
+# 3) Re-render the cross-tier notebook:
+uv run jupyter nbconvert --to notebook --execute --inplace \
+  notebooks/03_tier0_vs_tier1.ipynb
+```
+
+Decision table:
+
+| outcome | next step |
+|---------|----------|
+| (1) + (2) both pass | **H4 confirmed**; the model works; pivot to writeup with a clean positive story. |
+| (1) fails, (2) passes | Aux loss is too strong; re-run with `--aux-lambda 0.1`. ~$5 follow-up. |
+| (2) fails | **H4 ruled out**; H5 (joint-Hawkes loss is the wrong objective on this data) essentially proved by exclusion. Pivot to writeup of the negative chain as a methodological finding. Draft `docs/notes/mark-head-collapse-chain.md` consolidating all four runs. |
