@@ -183,7 +183,7 @@ class NeuralHawkes(nn.Module):
         # Softmax is shift-invariant in z, so this does not affect the rate
         # gradient which flows through softplus(z). Eval should always pass
         # aux_lambda=0.0 to keep val NLL comparable to the original Tier 1.
-        if aux_lambda != 0.0:
+        if aux_lambda > 0.0:
             z = out["z_at_events"]  # (N, K) raw logits
             log_p_mark = nnf.log_softmax(z, dim=-1)
             log_p_obs = log_p_mark.gather(1, marks.unsqueeze(1)).squeeze(1)  # (N,)
