@@ -37,7 +37,7 @@ from eonet_cascades.data.store import EventStore
 from eonet_cascades.interpret.forward_sim_matrix import _lambda_k_at
 from eonet_cascades.models.neural_hawkes import NeuralHawkes
 
-RUN_DIR = Path("runs/tier1_mlp/20260526_141553")
+RUN_DIR = Path("runs/tier1_aux/20260527_224337")
 SLICE_START = datetime(2024, 7, 1, tzinfo=UTC)
 SLICE_END = datetime(2024, 8, 1, tzinfo=UTC)
 N_HIST = 50
