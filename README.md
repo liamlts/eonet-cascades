@@ -6,7 +6,7 @@ Three model tiers — parametric multivariate Hawkes, Neural Hawkes (continuous-
 
 ## Status
 
-Phase 0 + 1 — bootstrap and data layer. See `docs/superpowers/specs/2026-05-24-eonet-cascade-benchmark-design.md` for the full design.
+Active development. Parametric multivariate Hawkes baseline and Tier-1 neural Hawkes are implemented; see `docs/notes/` for tier-by-tier results and the Hurricane Francine case study.
 
 ## Quick start
 
