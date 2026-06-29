@@ -84,9 +84,7 @@ def compute_attribution_matrix(
         if not valid_js:
             continue
         inputs = [h_list[j] for j in valid_js]
-        grads = torch.autograd.grad(
-            per_event_list[i], inputs, retain_graph=True, allow_unused=True
-        )
+        grads = torch.autograd.grad(per_event_list[i], inputs, retain_graph=True, allow_unused=True)
         dts = (times_cpu[i] - times_cpu[:i]).clamp(min=0.0)
         decays = torch.exp(-dts / tau_days).tolist()
         child = marks_py[i]

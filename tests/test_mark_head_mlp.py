@@ -7,6 +7,7 @@ Surfaces tested:
   * Unknown mark_head values raise ValueError at construction time.
   * mark_head round-trips through state_dict + config dict save/load.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,13 +35,15 @@ def test_linear_mark_head_default_is_bit_identical():
     output on the same input. Guards against accidentally shifting RNG state.
     """
     torch.manual_seed(0)
-    m_default = NeuralHawkes(
-        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2
-    )
+    m_default = NeuralHawkes(n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2)
 
     torch.manual_seed(0)
     m_explicit = NeuralHawkes(
-        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        n_marks=3,
+        hidden_dim=8,
+        mark_emb_dim=4,
+        spatial_emb_dim=4,
+        n_mix=2,
         mark_head="linear",
     )
 
@@ -54,16 +57,18 @@ def test_linear_mark_head_default_is_bit_identical():
     times, lons, lats, marks = _small_inputs(n_marks=3, n_events=20, seed=0)
     out_default = m_default(times, lons, lats, marks)
     out_explicit = m_explicit(times, lons, lats, marks)
-    assert torch.equal(
-        out_default["log_lambda_k_at_event"], out_explicit["log_lambda_k_at_event"]
-    )
+    assert torch.equal(out_default["log_lambda_k_at_event"], out_explicit["log_lambda_k_at_event"])
 
 
 def test_mlp_mark_head_constructs_with_expected_shape():
     """NeuralHawkes(mark_head='mlp') builds an nn.Sequential head with the
     correct (hidden_dim → hidden_dim // 2 → n_marks) shape."""
     model = NeuralHawkes(
-        n_marks=8, hidden_dim=64, mark_emb_dim=8, spatial_emb_dim=8, n_mix=2,
+        n_marks=8,
+        hidden_dim=64,
+        mark_emb_dim=8,
+        spatial_emb_dim=8,
+        n_mix=2,
         mark_head="mlp",
     )
 
@@ -85,7 +90,11 @@ def test_mlp_mark_head_log_likelihood_is_finite():
     """log_likelihood under the MLP head returns a finite scalar tensor."""
     torch.manual_seed(0)
     model = NeuralHawkes(
-        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        n_marks=3,
+        hidden_dim=8,
+        mark_emb_dim=4,
+        spatial_emb_dim=4,
+        n_mix=2,
         mark_head="mlp",
     )
     model.eval()
@@ -100,7 +109,11 @@ def test_invalid_mark_head_raises_value_error():
     """Unknown mark_head value raises a clear ValueError, not a silent fallback."""
     with pytest.raises(ValueError, match="unknown mark_head"):
         NeuralHawkes(
-            n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+            n_marks=3,
+            hidden_dim=8,
+            mark_emb_dim=4,
+            spatial_emb_dim=4,
+            n_mix=2,
             mark_head="transformer",
         )
 
@@ -110,7 +123,11 @@ def test_mlp_mark_head_state_dict_round_trip(tmp_path):
     matches bit-exactly. Mirrors the CLI's checkpoint save/load pattern."""
     torch.manual_seed(0)
     m_src = NeuralHawkes(
-        n_marks=3, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2,
+        n_marks=3,
+        hidden_dim=8,
+        mark_emb_dim=4,
+        spatial_emb_dim=4,
+        n_mix=2,
         mark_head="mlp",
     )
     m_src.eval()

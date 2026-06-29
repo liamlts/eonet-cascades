@@ -5,6 +5,7 @@ Two surfaces:
   * `NeuralHawkes.log_likelihood(..., mark_weights=...)` -- unweighted-default
     matches the pre-rebalance behavior (bit-exact); uniform weights match too.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,9 +52,7 @@ def test_log_likelihood_unweighted_default_matches_no_mark_weights_kwarg():
     rng = np.random.default_rng(0)
     n_marks = 3
     n_events = 20
-    model = NeuralHawkes(
-        n_marks=n_marks, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2
-    )
+    model = NeuralHawkes(n_marks=n_marks, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2)
     model.eval()
 
     times = torch.tensor(np.sort(rng.uniform(0.0, 20.0, size=n_events)), dtype=torch.float32)
@@ -76,9 +75,7 @@ def test_log_likelihood_with_skewed_weights_changes_value():
     rng = np.random.default_rng(0)
     n_marks = 3
     n_events = 30
-    model = NeuralHawkes(
-        n_marks=n_marks, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2
-    )
+    model = NeuralHawkes(n_marks=n_marks, hidden_dim=8, mark_emb_dim=4, spatial_emb_dim=4, n_mix=2)
     model.eval()
 
     times = torch.tensor(np.sort(rng.uniform(0.0, 20.0, size=n_events)), dtype=torch.float32)
