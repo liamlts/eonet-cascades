@@ -59,9 +59,7 @@ class NeuralHawkes(nn.Module):
                 nn.Linear(hidden_dim // 2, n_marks),
             )
         else:
-            raise ValueError(
-                f"unknown mark_head: {mark_head!r} (expected 'linear' or 'mlp')"
-            )
+            raise ValueError(f"unknown mark_head: {mark_head!r} (expected 'linear' or 'mlp')")
         self.mark_head = mark_head
         self.mdn = MDNHead(input_dim=hidden_dim + mark_emb_dim, n_components=n_mix)
 

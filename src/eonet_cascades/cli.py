@@ -351,9 +351,7 @@ def model_train_neural_hawkes(
     val_chunks = chunked(df_val, until_dt)
     console.print(f"Built {len(train_chunks)} train chunks, {len(val_chunks)} val chunks")
 
-    model = NeuralHawkes(
-        n_marks=n_marks, hidden_dim=hidden_dim, mark_head=mark_head
-    ).to(device)
+    model = NeuralHawkes(n_marks=n_marks, hidden_dim=hidden_dim, mark_head=mark_head).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs * max(1, len(train_chunks)))
 
@@ -437,7 +435,8 @@ def _stratified_subsample(df, n_target: int, rare_threshold_frac: float, seed: i
         return df.sort("time_start")
     counts = df.group_by("mark").len()
     rare_marks = [
-        m for m, c in zip(counts["mark"].to_list(), counts["len"].to_list(), strict=True)
+        m
+        for m, c in zip(counts["mark"].to_list(), counts["len"].to_list(), strict=True)
         if c / total < rare_threshold_frac
     ]
     if not rare_marks:
@@ -446,9 +445,7 @@ def _stratified_subsample(df, n_target: int, rare_threshold_frac: float, seed: i
     rest_df = df.filter(~pl_.col("mark").is_in(rare_marks))
     n_rest = max(0, n_target - keep_df.height)
     rest_sample = (
-        rest_df.sample(min(n_rest, rest_df.height), seed=seed)
-        if n_rest > 0
-        else rest_df.head(0)
+        rest_df.sample(min(n_rest, rest_df.height), seed=seed) if n_rest > 0 else rest_df.head(0)
     )
     return pl_.concat([keep_df, rest_sample], how="vertical").sort("time_start")
 

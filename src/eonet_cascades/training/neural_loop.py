@@ -101,7 +101,11 @@ def train_one_epoch(
         if times.numel() == 0:
             continue
         components = model.log_likelihood(
-            times, lons, lats, marks, chunk.window,
+            times,
+            lons,
+            lats,
+            marks,
+            chunk.window,
             mark_weights=mark_weights,
             aux_lambda=aux_lambda,
             return_components=True,
